@@ -1,4 +1,4 @@
-# Crypto Casino UI
+# Crypto Casino 
 
 A professional, high-fidelity crypto casino frontend built with Next.js, Tailwind CSS, and shadcn/ui.
 
