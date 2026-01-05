@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 216 13% 6%; /* #0d0f11 */
+    --foreground: 210 20% 98%; /* #e6eef2 */
+
+    --card: 216 13% 7%; /* #111316 */
+    --card-foreground: 210 20% 98%;
+
+    --popover: 216 13% 7%;
+    --popover-foreground: 210 20% 98%;
+
+    --primary: 159 100% 41%; /* #00d48b */
+    --primary-foreground: 210 20% 98%;
+
+    --secondary: 216 7% 11%; /* #191b1d */
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 210 7% 63%; /* #9aa3a8 */
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 159 100% 41%;
+    --accent-foreground: 210 20% 98%;
+
+    --destructive: 0 100% 65%; /* #ff4d4f */
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 216 7% 14%;
+    --input: 216 7% 14%;
+    --ring: 159 100% 41%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0b0e;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2d35;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f434d;
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-casino-glass border border-casino-glass-border backdrop-blur-md;
+  }
+  
+  .text-shadow-neon {
+    text-shadow: 0 0 5px rgba(0, 255, 163, 0.5), 0 0 10px rgba(0, 255, 163, 0.3);
+  }
+}
