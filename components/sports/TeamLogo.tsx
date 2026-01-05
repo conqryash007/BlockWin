@@ -3,18 +3,20 @@
 import { useState, useEffect, useMemo } from "react";
 import { searchTeam, TeamImageData } from "@/lib/theSportsDbApi";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
 interface TeamLogoProps {
   teamName: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   className?: string;
   showFallback?: boolean;
 }
 
 const SIZE_MAP = {
-  sm: { container: "w-6 h-6", text: "text-xs" },
-  md: { container: "w-8 h-8", text: "text-sm" },
-  lg: { container: "w-12 h-12", text: "text-xl" },
+  sm: { container: "w-6 h-6", text: "text-xs", icon: "w-3 h-3" },
+  md: { container: "w-8 h-8", text: "text-sm", icon: "w-4 h-4" },
+  lg: { container: "w-12 h-12", text: "text-xl", icon: "w-5 h-5" },
+  xl: { container: "w-20 h-20", text: "text-3xl", icon: "w-8 h-8" },
 };
 
 /**
@@ -38,9 +40,8 @@ function getTeamInitials(name: string): string {
  * TeamLogo Component
  * 
  * Displays team logo with fallback hierarchy:
- * 1. Cached image
- * 2. TheSportsDB API image
- * 3. Team initials placeholder
+ * 1. TheSportsDB API image
+ * 2. Team initials placeholder with loading spinner
  */
 export function TeamLogo({
   teamName,
@@ -76,9 +77,7 @@ export function TeamLogo({
       setHasError(false);
 
       try {
-        console.log(`[TeamLogo] Fetching logo for: ${teamName}`);
         const data = await searchTeam(teamName);
-        console.log(`[TeamLogo] Result for ${teamName}:`, data);
         if (isMounted) {
           setImageData(data);
           setIsLoading(false);
@@ -102,21 +101,51 @@ export function TeamLogo({
   // Get the best available image URL
   const imageUrl = imageData?.badge || imageData?.logo || null;
 
-  // Always show fallback (initials) during SSR and initial load for consistent hydration
-  // This is the "base" state that matches on both server and client
-  const showInitials = !mounted || isLoading || !imageUrl || hasError;
+  // Show loading spinner while fetching
+  if (mounted && isLoading) {
+    return (
+      <div
+        className={cn(
+          sizeClasses.container,
+          "rounded-full bg-white/10 border border-white/20 flex items-center justify-center shrink-0",
+          className
+        )}
+        aria-label={`Loading ${teamName} logo`}
+      >
+        <Loader2 className={cn(sizeClasses.icon, "animate-spin text-casino-brand")} />
+      </div>
+    );
+  }
 
-  if (showInitials) {
-    if (!showFallback) return null;
-    
+  // Show image if available
+  if (mounted && imageUrl && !hasError) {
+    return (
+      <div
+        className={cn(
+          sizeClasses.container,
+          "rounded-full overflow-hidden bg-white/5 border border-white/10 flex items-center justify-center shrink-0",
+          className
+        )}
+      >
+        <img
+          src={imageUrl}
+          alt={`${teamName} logo`}
+          className="w-full h-full object-contain p-0.5"
+          loading="lazy"
+          onError={() => setHasError(true)}
+        />
+      </div>
+    );
+  }
+
+  // Show fallback (initials)
+  if (showFallback) {
     return (
       <div
         className={cn(
           sizeClasses.container,
           sizeClasses.text,
           "rounded-full bg-white/10 border border-white/20 flex items-center justify-center font-bold text-white shrink-0",
-          // Only animate when actually loading on client
-          mounted && isLoading && "animate-pulse",
           className
         )}
         aria-label={`${teamName} logo`}
@@ -126,24 +155,7 @@ export function TeamLogo({
     );
   }
 
-  // Show image if available (only on client after mount)
-  return (
-    <div
-      className={cn(
-        sizeClasses.container,
-        "rounded-full overflow-hidden bg-white/5 border border-white/10 flex items-center justify-center shrink-0",
-        className
-      )}
-    >
-      <img
-        src={imageUrl}
-        alt={`${teamName} logo`}
-        className="w-full h-full object-contain p-0.5"
-        loading="lazy"
-        onError={() => setHasError(true)}
-      />
-    </div>
-  );
+  return null;
 }
 
 /**
@@ -163,7 +175,7 @@ export function usePrefetchTeamLogos(teamNames: string[]) {
     if (!teamNames || teamNames.length === 0) return;
 
     // Prefetch in background
-    const uniqueNames = [...new Set(teamNames)];
+    const uniqueNames = Array.from(new Set(teamNames));
     uniqueNames.forEach((name) => {
       searchTeam(name).catch(() => {
         // Silently fail - caching will handle this

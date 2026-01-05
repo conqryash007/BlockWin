@@ -62,13 +62,13 @@ export default function EventDetailPage() {
               </Button>
             </Link>
             <div className="flex items-center gap-4">
-              {/* Team Logos */}
-              <div className="hidden md:flex items-center gap-2">
-                <TeamLogo teamName={event.home_team} size="lg" />
+              {/* Team Logos - Show on all screens */}
+              <div className="flex items-center gap-3">
+                <TeamLogo teamName={event.home_team} size="xl" />
                 <span className="text-2xl font-bold text-white/50">vs</span>
-                <TeamLogo teamName={event.away_team} size="lg" />
+                <TeamLogo teamName={event.away_team} size="xl" />
               </div>
-              <div>
+              <div className="hidden md:block">
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl font-bold text-white">
                     {event.home_team} vs {event.away_team}

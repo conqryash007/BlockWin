@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# Next.js plugin for Netlify - handles SSR and API routes
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
