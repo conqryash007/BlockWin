@@ -13,6 +13,14 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 export const metadata: Metadata = {
   title: "Casino Royale - Crypto Betting",
   description: "Premium Crypto Casino & Sportsbook",
+  icons: {
+    icon: [
+      { url: "/favicon.png", sizes: "any" },
+    ],
+    apple: [
+      { url: "/favicon.png" },
+    ],
+  },
 };
 
 export default function RootLayout({
