@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Radio, Clock, Play, MapPin } from "lucide-react";
+import { TeamLogo } from "./TeamLogo";
 
 interface MatchInfoProps {
   event: SportEvent;
@@ -48,11 +49,7 @@ export function MatchInfo({ event, className }: MatchInfoProps) {
       <div className="flex items-center justify-between gap-4">
         {/* Home Team */}
         <div className="flex-1 text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/10 border-2 border-white/20 flex items-center justify-center">
-            <span className="text-4xl font-black text-white">
-              {event.home_team.charAt(0)}
-            </span>
-          </div>
+          <TeamLogo teamName={event.home_team} size="xl" className="mx-auto mb-4 border-2 border-white/20" />
           <h3 className="text-lg font-bold text-white mb-1">{event.home_team}</h3>
           <p className="text-xs text-muted-foreground">Home</p>
           
@@ -79,11 +76,7 @@ export function MatchInfo({ event, className }: MatchInfoProps) {
 
         {/* Away Team */}
         <div className="flex-1 text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/10 border-2 border-white/20 flex items-center justify-center">
-            <span className="text-4xl font-black text-white">
-              {event.away_team.charAt(0)}
-            </span>
-          </div>
+          <TeamLogo teamName={event.away_team} size="xl" className="mx-auto mb-4 border-2 border-white/20" />
           <h3 className="text-lg font-bold text-white mb-1">{event.away_team}</h3>
           <p className="text-xs text-muted-foreground">Away</p>
           
