@@ -147,13 +147,12 @@ export async function searchTeam(teamName: string): Promise<TeamImageData | null
   const normalizedName = normalizeTeamName(teamName);
   const cacheKey = `team_${normalizedName}`;
   
-  // TEMPORARILY DISABLED: Check cache first
-  // const cached = getCachedImage(cacheKey);
-  // if (cached) {
-  //   console.log(`[TheSportsDB] Cache hit for ${teamName}`);
-  //   return cached as TeamImageData;
-  // }
-  
+  // Check client-side cache first (localStorage)
+  const cached = getCachedImage(cacheKey);
+  if (cached) {
+    console.log(`[TheSportsDB] Cache hit for ${teamName}`);
+    return cached as TeamImageData;
+  }
 
   // Make rate-limited request to local proxy
   const result = await enqueueRequest(async () => {

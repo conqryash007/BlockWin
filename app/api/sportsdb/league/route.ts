@@ -77,7 +77,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': `public, max-age=${CACHE_MAX_AGE}, s-maxage=${CACHE_MAX_AGE}`,
+        // Disable CDN-level caching to prevent Netlify from caching wrong data
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        'Netlify-CDN-Cache-Control': 'no-store',
+        'CDN-Cache-Control': 'no-store',
       },
     });
   } catch (error) {
