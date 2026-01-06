@@ -1,90 +1,92 @@
-import { Button } from "@/components/ui/button";
-import { Carousel } from "@/components/layout/Carousel";
-import { Badge } from "@/components/ui/badge";
-import { GameCard } from "@/components/casino/GameCard";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { GAMES } from "@/lib/mockData";
-import { ArrowRight, Flame } from "lucide-react";
-import Link from "next/link";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GAME_CATEGORIES } from "@/lib/constants";
+import {
+  HeroSection,
+  QuickActionsColumn,
+  FeaturedGamesCarousel,
+  ShortcutsGrid,
+  LiveQuickBets,
+  InsightsCards,
+  DashboardFooter,
+  BetslipPreview,
+  GamingLotterySection,
+  LivePlayerActivityFeed,
+} from "@/components/dashboard";
+import { Toaster } from "sonner";
+import dashboardData from "@/mocks/dashboard.json";
+import type { DashboardData } from "@/types/dashboard";
+
+// Type assertion for mock data
+const data = dashboardData as DashboardData;
 
 export default function Home() {
   return (
-    <div className="space-y-8">
-      {/* Hero Section */}
-      <Carousel />
-
-      {/* Game Categories */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold tracking-tight text-white">Casino Lobby</h2>
-            <div className="hidden md:flex gap-2">
-                 <Button variant="ghost" size="sm">New</Button>
-                 <Button variant="ghost" size="sm">Top Rated</Button>
-            </div>
+    <>
+      <div className="space-y-8 pb-20 lg:pb-8">
+        {/* Row 1: Hero + Quick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Hero Section - 2/3 width on desktop */}
+          <div className="lg:col-span-2">
+            <HeroSection slides={data.heroSlides} />
+          </div>
+          
+          {/* Quick Actions Column - 1/3 width on desktop */}
+          <div className="hidden lg:block">
+            <QuickActionsColumn />
+          </div>
         </div>
 
-        <Tabs defaultValue="lobby" className="w-full">
-            <TabsList className="bg-transparent p-0 justify-start space-x-2 border-b border-white/5 w-full rounded-none h-auto pb-2 overflow-x-auto">
-              {GAME_CATEGORIES.map((cat) => (
-                <TabsTrigger 
-                    key={cat.id} 
-                    value={cat.id}
-                    className="data-[state=active]:bg-transparent data-[state=active]:text-casino-brand data-[state=active]:border-b-2 data-[state=active]:border-casino-brand data-[state=active]:shadow-none rounded-none px-4 py-2"
-                >
-                    {cat.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            
-            <TabsContent value="lobby" className="mt-6 space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                
-                {/* Originals */}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                             <div className="h-6 w-1 rounded bg-casino-brand"></div>
-                             <h3 className="font-bold text-white uppercase tracking-wider text-sm">Casino Originals</h3>
-                        </div>
-                        <Button variant="link" className="text-xs">View All <ArrowRight className="ml-1 h-3 w-3" /></Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                        {GAMES.filter(g => g.category === 'originals').map((game) => (
-                            <GameCard key={game.id} {...game} />
-                        ))}
-                    </div>
-                </div>
+        {/* Row 2: Featured Games Carousel */}
+        <FeaturedGamesCarousel games={data.featuredGames} />
 
-                {/* Popular Slots (Mock) */}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                             <div className="h-6 w-1 rounded bg-casino-gold"></div>
-                             <h3 className="font-bold text-white uppercase tracking-wider text-sm">Pragmatic Play</h3>
-                        </div>
-                        <Button variant="link" className="text-xs">View All <ArrowRight className="ml-1 h-3 w-3" /></Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                         {/* Reusing mock data for visual fill */}
-                        {[...GAMES, ...GAMES].slice(0, 5).map((game, i) => (
-                            <GameCard key={i} {...game} id={`${game.id}-${i}`} />
-                        ))}
-                    </div>
-                </div>
+        {/* Row 3: Gaming & Lottery Section - New Quick Links */}
+        <GamingLotterySection />
 
-            </TabsContent>
-            
-            {/* Other tabs placeholders */}
-            <TabsContent value="originals">
-                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                    {GAMES.filter(g => g.category === 'originals').map((game) => (
-                        <GameCard key={game.id} {...game} />
-                    ))}
-                 </div>
-            </TabsContent>
-        </Tabs>
-      </section>
-    </div>
+        {/* Row 4: Live Player Activity Feed */}
+        <LivePlayerActivityFeed filter="all" title="Live Players" maxItems={6} />
+
+        {/* Row 5: Shortcuts Grid + Live Quick Bets */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Shortcuts Grid - 2/3 width */}
+          <div className="lg:col-span-2">
+            <ShortcutsGrid ctas={data.quickCtas} />
+          </div>
+          
+          {/* Live Quick Bets - 1/3 width */}
+          <div>
+            <LiveQuickBets bets={data.quickBets} />
+          </div>
+        </div>
+
+        {/* Row 5: Insights Cards */}
+        <InsightsCards 
+          insights={data.insights} 
+          trendingLeagues={data.trendingLeagues} 
+        />
+
+        {/* Mobile Quick Actions - visible only on mobile */}
+        <div className="lg:hidden">
+          <QuickActionsColumn />
+        </div>
+
+        {/* Footer */}
+        <DashboardFooter />
+      </div>
+
+      {/* Betslip Preview - Sticky widget */}
+      <BetslipPreview />
+      
+      {/* Toast notifications */}
+      <Toaster 
+        position="top-right" 
+        richColors 
+        theme="dark"
+        toastOptions={{
+          style: {
+            background: '#0d0f14',
+            border: '1px solid rgba(255,255,255,0.1)',
+          },
+        }}
+      />
+    </>
   );
 }
+

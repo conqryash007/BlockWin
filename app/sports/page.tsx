@@ -11,6 +11,7 @@ import { useEvents, useMockMode, useLiveAndUpcomingEvents } from "@/hooks/useSpo
 import { EventFilters as EventFiltersType, SportEvent } from "@/types/sports";
 import { MOCK_EVENTS, SPORT_CATEGORIES } from "@/lib/mockSportsData";
 import { isEventLive } from "@/lib/oddsUtils";
+import { LivePlayerActivityFeed } from "@/components/dashboard/LivePlayerActivityFeed";
 
 export default function SportsPage() {
   const { useMock } = useMockMode();
@@ -131,6 +132,9 @@ export default function SportsPage() {
           ))}
         </div>
       )}
+
+      {/* Live Sports Betting Activity */}
+      <LivePlayerActivityFeed filter="sports" title="Live Sports Bets" maxItems={6} />
     </div>
   );
 }

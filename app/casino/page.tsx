@@ -3,6 +3,7 @@ import { GameCard } from "@/components/casino/GameCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, SlidersHorizontal } from "lucide-react";
+import { LivePlayerActivityFeed } from "@/components/dashboard/LivePlayerActivityFeed";
 
 export default function CasinoPage() {
   return (
@@ -26,6 +27,9 @@ export default function CasinoPage() {
             <GameCard key={game.id} {...game} />
         ))}
       </div>
+
+      {/* Live Player Activity */}
+      <LivePlayerActivityFeed filter="casino" title="Live Casino Players" maxItems={8} />
     </div>
   );
 }
