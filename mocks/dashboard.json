@@ -25,7 +25,7 @@
     {
       "id": "hero-3",
       "title": "Welcome Bonus",
-      "subtitle": "Get 300% up to ₹50,000 on first deposit",
+      "subtitle": "Get 300% up to $500 on first deposit",
       "cta": "Claim Now",
       "secondaryCta": null,
       "image": "/images/banner_welcome.png",
@@ -216,9 +216,9 @@
     { "id": "nba", "name": "NBA", "icon": "🏀", "eventCount": 12 }
   ],
   "walletBalance": {
-    "available": 15420.50,
-    "inPlay": 2500.00,
-    "currency": "INR",
-    "symbol": "₹"
+    "available": 1542.05,
+    "inPlay": 250.00,
+    "currency": "USD",
+    "symbol": "$"
   }
 }

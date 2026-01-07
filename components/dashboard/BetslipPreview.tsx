@@ -108,7 +108,7 @@ export function BetslipPreview({ className }: BetslipPreviewProps) {
 
             {/* Stake Input */}
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
               <Input
                 type="number"
                 placeholder="Enter stake"
@@ -123,7 +123,7 @@ export function BetslipPreview({ className }: BetslipPreviewProps) {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Potential Return</span>
                 <span className="font-bold text-casino-brand">
-                  ₹{(parseFloat(stake) * totalOdds).toFixed(2)}
+                  ${(parseFloat(stake) * totalOdds).toFixed(2)}
                 </span>
               </div>
             )}

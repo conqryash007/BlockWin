@@ -179,7 +179,7 @@ export function SportsEducation() {
                 <div className="bg-black/30 p-4 rounded-lg font-mono text-sm">
                   <div className="flex justify-between mb-2">
                     <span className="text-gray-400">Stake:</span>
-                    <span className="text-white">₹100</span>
+                    <span className="text-white">$100</span>
                   </div>
                   <div className="flex justify-between mb-2">
                     <span className="text-gray-400">Odds:</span>
@@ -188,7 +188,7 @@ export function SportsEducation() {
                   <div className="h-px bg-white/20 my-3" />
                   <div className="flex justify-between">
                     <span className="text-white font-bold">Potential Return:</span>
-                    <span className="text-casino-brand font-bold text-lg">₹185.00</span>
+                    <span className="text-casino-brand font-bold text-lg">$185.00</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">Formula: Stake × Odds = Return</p>
                 </div>
@@ -205,12 +205,12 @@ export function SportsEducation() {
                     <div className="p-4 rounded-lg bg-white/5 border border-white/10">
                       <h5 className="font-bold text-white mb-2">Single Bet</h5>
                       <p className="text-sm text-gray-400">One selection per bet. Lower risk, consistent returns.</p>
-                      <p className="text-xs text-casino-brand mt-2">₹100 @ 1.85 = ₹185</p>
+                      <p className="text-xs text-casino-brand mt-2">$100 @ 1.85 = $185</p>
                     </div>
                     <div className="p-4 rounded-lg bg-casino-brand/5 border border-casino-brand/30">
                       <h5 className="font-bold text-white mb-2">Parlay Bet</h5>
                       <p className="text-sm text-gray-400">Multiple selections combined. Higher risk, bigger wins!</p>
-                      <p className="text-xs text-casino-brand mt-2">₹100 @ (1.85 × 2.10) = ₹388.50</p>
+                      <p className="text-xs text-casino-brand mt-2">$100 @ (1.85 × 2.10) = $388.50</p>
                     </div>
                   </div>
                 </div>

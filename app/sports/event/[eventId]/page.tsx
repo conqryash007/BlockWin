@@ -159,8 +159,8 @@ function MobileBetSlipTrigger() {
         Bet Slip
       </span>
       <span className="flex items-center gap-2">
-        <span className="text-sm opacity-80">₹{totalStake.toFixed(0)}</span>
-        <span className="text-white font-bold">→ ₹{potentialReturn.toFixed(2)}</span>
+        <span className="text-sm opacity-80">${totalStake.toFixed(0)}</span>
+        <span className="text-white font-bold">→ ${potentialReturn.toFixed(2)}</span>
       </span>
     </Button>
   );

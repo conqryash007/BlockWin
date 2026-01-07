@@ -171,7 +171,7 @@ export function LivePlayerActivityFeed({
             key={activity.id} 
             activity={activity} 
             isNew={index === 0}
-            showGame={filter !== 'sports'}
+            showGame={activity.gameType !== 'sports'}
           />
         ))}
       </div>

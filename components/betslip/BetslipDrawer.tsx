@@ -124,7 +124,7 @@ export function BetslipDrawer() {
                     {/* Stake Input */}
                     <div className="mt-4">
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                         <Input 
                           type="number"
                           className="h-10 pl-8 text-sm font-mono bg-[#0a0c10] border-[#1f232c] focus:border-casino-brand/50 focus:ring-casino-brand/20" 
@@ -144,7 +144,7 @@ export function BetslipDrawer() {
                             className="flex-1 h-8 text-xs bg-[#1a1d24] hover:bg-[#22262f] border border-[#2a2f3a] hover:border-casino-brand/30"
                             onClick={() => updateStake(item.id, amount)}
                           >
-                            ₹{amount}
+                            ${amount}
                           </Button>
                         ))}
                       </div>
@@ -155,7 +155,7 @@ export function BetslipDrawer() {
                       <div className="flex justify-between mt-3 pt-3 border-t border-[#1f232c] text-sm">
                         <span className="text-muted-foreground">Potential Return</span>
                         <span className="text-casino-brand font-bold">
-                          ₹{(item.stake * item.odds).toFixed(2)}
+                          ${(item.stake * item.odds).toFixed(2)}
                         </span>
                       </div>
                     )}
@@ -175,11 +175,11 @@ export function BetslipDrawer() {
                   </div>
                   <div className="flex justify-between text-muted-foreground">
                     <span>Total Stake</span>
-                    <span className="text-white font-medium">₹{totalStake.toFixed(2)}</span>
+                    <span className="text-white font-medium">${totalStake.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-white font-bold pt-3 border-t border-[#1f232c]">
                     <span>Potential Return</span>
-                    <span className="text-casino-brand text-xl">₹{potentialReturn.toFixed(2)}</span>
+                    <span className="text-casino-brand text-xl">${potentialReturn.toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -196,7 +196,7 @@ export function BetslipDrawer() {
                       Placing Bet...
                     </>
                   ) : (
-                    `Place Bet${totalStake > 0 ? ` • ₹${totalStake.toFixed(0)}` : ''}`
+                    `Place Bet${totalStake > 0 ? ` • $${totalStake.toFixed(0)}` : ''}`
                   )}
                 </Button>
               </div>

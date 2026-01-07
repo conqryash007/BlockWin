@@ -50,7 +50,7 @@ export function InsightsCards({ insights, trendingLeagues, className }: Insights
                 "font-bold text-lg",
                 insights.profitLoss >= 0 ? "text-green-500" : "text-red-500"
               )}>
-                {insights.profitLoss >= 0 ? '+' : ''}₹{insights.estReturn.toLocaleString()}
+                {insights.profitLoss >= 0 ? '+' : ''}${insights.estReturn.toLocaleString()}
               </span>
             </div>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">

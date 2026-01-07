@@ -79,7 +79,17 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
         {!isConnected ? (
              <div className="p-6 pt-2 space-y-6">
                 <div className="flex flex-col gap-3">
-                   {connectors.map((connector) => {
+                   {connectors
+                     .sort((a, b) => {
+                       const aName = a.name.toLowerCase();
+                       const bName = b.name.toLowerCase();
+                       if (aName.includes('injected') || aName.includes('metamask')) return -1;
+                       if (bName.includes('injected') || bName.includes('metamask')) return 1;
+                       if (aName.includes('walletconnect')) return 1;
+                       if (bName.includes('walletconnect')) return -1;
+                       return 0;
+                     })
+                     .map((connector) => {
                        const { icon: Icon, color, bg, border } = getWalletStyle(connector.name);
                        return (
                            <button 

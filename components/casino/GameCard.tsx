@@ -17,14 +17,11 @@ interface GameCardProps {
   category?: string;
 }
 
-// Games that have dedicated pages under /casino/
-const ORIGINALS_GAMES = ["crash"];
-
 export function GameCard({ id, name, provider, image, rtp, category }: GameCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   
-  // Route originals games to /casino/, others to /game/
-  const href = ORIGINALS_GAMES.includes(id) ? `/casino/${id}` : `/game/${id}`;
+  // Route all games to /casino/{game}
+  const href = `/casino/${id}`;
 
   return (
     <Link href={href}>

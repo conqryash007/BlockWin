@@ -176,7 +176,7 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
             <div className="p-4 border-t border-[#1a1d24]">
               <label className="text-xs text-muted-foreground block mb-2">Total Stake</label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">₹</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                 <Input
                   type="number"
                   placeholder="0.00"
@@ -204,7 +204,7 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
                       }
                     }}
                   >
-                    ₹{amount}
+                    ${amount}
                   </Button>
                 ))}
               </div>
@@ -223,12 +223,12 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
             )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total Stake</span>
-              <span className="text-white">₹{totalStake.toFixed(2)}</span>
+              <span className="text-white">${totalStake.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-[#1f232c]">
               <span className="text-white font-medium">Potential Return</span>
               <span className="text-casino-brand font-bold text-lg">
-                ₹{calculateReturn().toFixed(2)}
+                ${calculateReturn().toFixed(2)}
               </span>
             </div>
           </div>
@@ -257,7 +257,7 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
                   Placing Bet...
                 </>
               ) : (
-                `Place Bet${totalStake > 0 ? ` • ₹${totalStake.toFixed(0)}` : ''}`
+                `Place Bet${totalStake > 0 ? ` • $${totalStake.toFixed(0)}` : ''}`
               )}
             </Button>
           </div>
@@ -353,7 +353,7 @@ function BetSlipItem({
       {betType === "single" && (
         <div className="mt-3">
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">₹</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
             <Input
               type="number"
               placeholder="Enter stake"
@@ -371,7 +371,7 @@ function BetSlipItem({
                 className="flex-1 h-8 text-xs bg-[#1a1d24] hover:bg-[#22262f] border border-[#2a2f3a] hover:border-casino-brand/30"
                 onClick={() => onStakeChange(amount)}
               >
-                ₹{amount}
+                ${amount}
               </Button>
             ))}
           </div>
@@ -383,7 +383,7 @@ function BetSlipItem({
         <div className="flex justify-between mt-2 text-xs">
           <span className="text-muted-foreground">Potential Return</span>
           <span className="text-casino-brand font-medium">
-            ₹{(item.stake * item.odds).toFixed(2)}
+            ${(item.stake * item.odds).toFixed(2)}
           </span>
         </div>
       )}

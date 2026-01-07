@@ -1,42 +1,93 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Play, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { HeroSlide } from "@/types/dashboard";
+import { HeroSlide, FeaturedGame } from "@/types/dashboard";
 
 interface HeroSectionProps {
   slides: HeroSlide[];
+  featuredGames?: FeaturedGame[];
   className?: string;
 }
 
-export function HeroSection({ slides, className }: HeroSectionProps) {
+// Helper to format match info for banner overlay
+function getMatchOverlay(game: FeaturedGame): { title: string; subtitle: string; isLive: boolean } {
+  const isLive = game.status === 'live';
+  const homeScore = game.home.score !== null ? ` ${game.home.score}` : '';
+  const awayScore = game.away.score !== null ? ` ${game.away.score}` : '';
+  
+  const title = `${game.home.name}${homeScore} vs ${game.away.name}${awayScore}`;
+  
+  let subtitle = '';
+  if (isLive && game.period) {
+    subtitle = `🔴 LIVE • ${game.league} • ${game.period}`;
+  } else if (game.status === 'upcoming') {
+    const date = new Date(game.startTime);
+    const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    subtitle = `⏰ Starting at ${timeStr} • ${game.league}`;
+  } else {
+    subtitle = `${game.league}`;
+  }
+  
+  return { title, subtitle, isLive };
+}
+
+export function HeroSection({ slides, featuredGames = [], className }: HeroSectionProps) {
   const [current, setCurrent] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
+
+  // Create dynamic slides: keep original images but update title/subtitle with current matches
+  const dynamicSlides = useMemo(() => {
+    // Get live games first, then upcoming games
+    const liveGames = featuredGames.filter(g => g.status === 'live');
+    const upcomingGames = featuredGames.filter(g => g.status === 'upcoming');
+    const matchesToShow = [...liveGames, ...upcomingGames];
+
+    // If we have matches, create slides with match info overlaid on banner images
+    if (matchesToShow.length > 0) {
+      return matchesToShow.slice(0, slides.length).map((game, index) => {
+        const originalSlide = slides[index % slides.length];
+        const overlay = getMatchOverlay(game);
+        
+        return {
+          ...originalSlide,
+          id: `match-${game.eventId}`,
+          title: overlay.title,
+          subtitle: overlay.subtitle,
+          eventId: game.eventId,
+          streamUrl: overlay.isLive ? originalSlide.streamUrl : null,
+        };
+      });
+    }
+    
+    // Fallback to original slides if no matches
+    return slides;
+  }, [slides, featuredGames]);
 
   useEffect(() => {
     if (isHovered) return;
     
     const interval = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % slides.length);
+      setCurrent((prev) => (prev + 1) % dynamicSlides.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, [slides.length, isHovered]);
+  }, [dynamicSlides.length, isHovered]);
 
-  const next = () => setCurrent((prev) => (prev + 1) % slides.length);
-  const prev = () => setCurrent((prev) => (prev - 1 + slides.length) % slides.length);
+  const next = () => setCurrent((prev) => (prev + 1) % dynamicSlides.length);
+  const prev = () => setCurrent((prev) => (prev - 1 + dynamicSlides.length) % dynamicSlides.length);
 
-  const currentSlide = slides[current];
+  const currentSlide = dynamicSlides[current];
 
   return (
     <div 
       className={cn(
         "relative w-full overflow-hidden rounded-2xl shadow-2xl group border border-white/5",
-        "max-h-[360px]",
+        "h-full",
         className
       )}
       onMouseEnter={() => setIsHovered(true)}
@@ -49,7 +100,7 @@ export function HeroSection({ slides, className }: HeroSectionProps) {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.5 }}
-          className="relative w-full aspect-[16/9] sm:aspect-[21/9] md:aspect-[24/8] lg:aspect-[16/5]"
+          className="relative w-full aspect-[16/9] sm:aspect-[21/9] md:aspect-[24/8] lg:aspect-auto lg:h-full"
         >
           <Image 
             src={currentSlide.image} 
@@ -151,7 +202,7 @@ export function HeroSection({ slides, className }: HeroSectionProps) {
 
       {/* Dots */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-        {slides.map((_, i) => (
+        {dynamicSlides.map((_, i) => (
           <button 
             key={i}
             className={cn(
