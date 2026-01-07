@@ -128,7 +128,7 @@ export function useAllRooms() {
           [roomId, minStakeAmount, maxStakeAmount, settlementTimestamp, closed, settled, payoutType] = data as [bigint, bigint, bigint, bigint, boolean, boolean, number];
         } else {
           // Object with named properties
-          const obj = data as {
+          const obj = data as unknown as {
             roomId: bigint;
             minStakeAmount: bigint;
             maxStakeAmount: bigint;

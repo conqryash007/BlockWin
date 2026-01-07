@@ -79,7 +79,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
         {!isConnected ? (
              <div className="p-6 pt-2 space-y-6">
                 <div className="flex flex-col gap-3">
-                   {connectors
+                   {[...connectors]
                      .sort((a, b) => {
                        const aName = a.name.toLowerCase();
                        const bName = b.name.toLowerCase();
