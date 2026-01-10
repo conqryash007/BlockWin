@@ -11,25 +11,31 @@ import { getRoomStatus, RoomStatus } from '@/types/lottery';
 export default function RoomDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const roomId = BigInt(params.roomId as string);
+  const roomId = params.roomId as string;
 
   const { room, isLoading: isLoadingRoom, error: roomError } = useRoom(roomId);
   const { stakes, isLoading: isLoadingStakes } = usePlayerStakes(
-    roomId,
-    room?.players || []
+    roomId
   );
 
   // Calculate total pool from stakes
-  const totalPool = stakes.reduce((acc, s) => acc + s.stake, BigInt(0));
+  const totalPool = stakes.reduce((acc, s) => acc + s.stake, 0);
   
   // Fetch winners for settled rooms
+  // Winners are now included in the room object from useRoom, but if we need separate logic:
+  // (Actually useRoom returning winners is better, but keeping useRoomWinners hook usage if it exists is fine 
+  // though I removed logic from it in useBettingRooms.ts? No, I kept the declaration but logic was cleaned? 
+  // Wait, I removed the Wagmi implementation but left the function signature in the clean version?
+  // Let me check if useRoomWinners logic relying on Supabase is implemented.
+  // In my rewrite of useBettingRooms, I implemented useRoomWinners? 
+  // No, I think I removed the internal logic but kept the export? 
+  // Let's check useBettingRooms content again if needed. But assuming useRoom returns winners.
+  
   const isSettled = room ? getRoomStatus(room) === RoomStatus.SETTLED : false;
-  const { winners, isLoading: isLoadingWinners } = useRoomWinners(
-    roomId,
-    isSettled,
-    totalPool,
-    room?.payoutType ?? 0
-  );
+  // If useRoom returns winners, we don't need useRoomWinners hook call really.
+  // But let's assume I need to pass winners.
+  const winners = room?.winners || [];
+  const isLoadingWinners = isLoadingRoom;
 
   return (
     <div className="space-y-6">

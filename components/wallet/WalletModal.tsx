@@ -10,9 +10,16 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Copy, Wallet, Smartphone, Globe, ChevronRight } from "lucide-react";
-import { useConnect } from "wagmi";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Copy, Wallet, Smartphone, Globe, ChevronRight, LogOut, Loader2, ArrowRight, CheckCircle2 } from "lucide-react";
+import { useConnect, useDisconnect, useAccount } from "wagmi";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
+import { parseUnits, formatUnits, maxUint256 } from 'viem';
+import { CONTRACTS } from '@/lib/contracts';
+import { useDeposit, useTokenBalance, useTokenAllowance, useTokenDecimals, useTokenSymbol } from '@/hooks/useDeposit';
+import { toast } from 'sonner';
 
 interface WalletModalProps {
   open: boolean;
@@ -49,15 +56,134 @@ const getWalletStyle = (name: string) => {
   };
 };
 
+// Default token
+const TOKEN_ADDRESS = CONTRACTS.MockUSDT.address;
+
 export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
   const { connectors, connect } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { address } = useAccount();
+  const { isAuthenticated, login, loading } = useAuth();
+  
+  // Deposit state
+  const [amount, setAmount] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  
+  // Deposit hooks
+  const { 
+    signTerms,
+    approveUnlimited, 
+    deposit, 
+    depositSuccess,
+  } = useDeposit();
+  
+  const { balance, refetch: refetchBalance } = useTokenBalance(TOKEN_ADDRESS);
+  const { allowance, refetch: refetchAllowance } = useTokenAllowance(TOKEN_ADDRESS);
+  const { decimals: tokenDecimals } = useTokenDecimals(TOKEN_ADDRESS);
+  const { symbol: tokenSymbol } = useTokenSymbol(TOKEN_ADDRESS);
+
+  // Use fetched decimals or fallback to 18
+  const TOKEN_DECIMALS = tokenDecimals ?? 18;
+  const TOKEN_SYMBOL = tokenSymbol ?? 'USDT';
+
+  // Parse amount
+  const parsedAmount = amount ? parseUnits(amount, TOKEN_DECIMALS) : BigInt(0);
+  
+  // Check if already approved (unlimited)
+  const hasUnlimitedApproval = allowance !== undefined && allowance >= maxUint256 / BigInt(2);
+  const hasSufficientBalance = balance !== undefined && balance >= parsedAmount;
+
+  // Handle deposit success
+  useEffect(() => {
+    if (depositSuccess && isProcessing) {
+      setIsProcessing(false);
+      setIsSuccess(true);
+      refetchBalance();
+      toast.success('Deposit successful!');
+    }
+  }, [depositSuccess, isProcessing, refetchBalance]);
+
+  // Reset deposit form when modal closes
+  useEffect(() => {
+    if (!open) {
+      setAmount('');
+      setTermsAccepted(false);
+      setIsProcessing(false);
+      setIsSuccess(false);
+    }
+  }, [open]);
+
+  // Main deposit handler - chains all wallet popups
+  const handleDeposit = async () => {
+    if (!amount || parsedAmount <= BigInt(0)) {
+      toast.error('Please enter an amount');
+      return;
+    }
+    if (!hasSufficientBalance) {
+      toast.error('Insufficient balance');
+      return;
+    }
+    if (!termsAccepted) {
+      toast.error('Please accept the terms');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      // Step 1: Sign terms
+      toast.info('Please sign the terms agreement...');
+      const signature = await signTerms();
+      if (!signature) {
+        setIsProcessing(false);
+        return;
+      }
+
+      // Step 2: Approve if needed
+      if (!hasUnlimitedApproval) {
+        toast.info('Please approve token spending...');
+        const approved = await approveUnlimited(TOKEN_ADDRESS);
+        if (!approved) {
+          setIsProcessing(false);
+          return;
+        }
+        // Wait for approval to be confirmed
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await refetchAllowance();
+      }
+
+      // Step 3: Deposit
+      toast.info('Please confirm the deposit...');
+      await deposit(TOKEN_ADDRESS, parsedAmount);
+      
+    } catch (error: any) {
+      console.error('Deposit flow error:', error);
+      toast.error(error.message || 'Transaction failed');
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100%-32px)] sm:max-w-[400px] rounded-xl p-0 overflow-hidden bg-[#0d0f11] border-white/10 text-white gap-0 shadow-2xl shadow-black/50">
         
         {/* Header Section */}
-        <div className="p-6 pb-2">
+        <div className="p-6 pb-2 relative">
+            {isAuthenticated && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="absolute right-4 top-4 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                onClick={() => {
+                  disconnect();
+                  onOpenChange(false);
+                }}
+              >
+                <LogOut className="w-5 h-5" />
+              </Button>
+            )}
             <DialogHeader>
             <DialogTitle className="text-xl font-bold text-center flex flex-col items-center gap-4">
                 <div className={cn(
@@ -93,29 +219,29 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                        const { icon: Icon, color, bg, border } = getWalletStyle(connector.name);
                        return (
                            <button 
-                              key={connector.uid}
-                              onClick={() => {
-                                  connect({ connector });
-                                  onOpenChange(false);
-                              }}
-                              className={cn(
-                                  "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
-                                  border
-                              )}
-                            >
-                            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
-                                <Icon className={cn("w-5 h-5", color)} />
-                            </div>
-                            
-                            <div className="flex-1 text-left">
-                                <span className="block font-medium text-sm text-white group-hover:text-white transition-colors">{connector.name}</span>
-                                <span className="text-[11px] text-muted-foreground/70 tracking-tight">
-                                     {connector.name.toLowerCase().includes('walletconnect') ? 'Scan with your mobile wallet' : 'Browser extension & more'}
-                                </span>
-                            </div>
+                               key={connector.uid}
+                               onClick={() => {
+                                   connect({ connector });
+                                   onOpenChange(false);
+                               }}
+                               className={cn(
+                                   "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
+                                   border
+                               )}
+                             >
+                             <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
+                                 <Icon className={cn("w-5 h-5", color)} />
+                             </div>
+                             
+                             <div className="flex-1 text-left">
+                                 <span className="block font-medium text-sm text-white group-hover:text-white transition-colors">{connector.name}</span>
+                                 <span className="text-[11px] text-muted-foreground/70 tracking-tight">
+                                      {connector.name.toLowerCase().includes('walletconnect') ? 'Scan with your mobile wallet' : 'Browser extension & more'}
+                                 </span>
+                             </div>
 
-                            <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white/40 group-hover:translate-x-0.5 transition-all" />
-                        </button>
+                             <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white/40 group-hover:translate-x-0.5 transition-all" />
+                         </button>
                        )})}
                    
                    {connectors.length === 0 && (
@@ -129,6 +255,25 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                     <p className="text-[10px] text-muted-foreground/40 uppercase tracking-widest font-medium">Secured by Wagmi</p>
                 </div>
              </div>
+        ) : !isAuthenticated ? (
+            <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
+                <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center animate-pulse">
+                    <Wallet className="w-8 h-8 text-yellow-500" />
+                </div>
+                <div className="text-center space-y-2">
+                    <h3 className="text-lg font-bold text-white">Action Required</h3>
+                    <p className="text-sm text-muted-foreground max-w-[260px]">
+                        Please sign the message in your wallet to verify ownership and access your account.
+                    </p>
+                </div>
+                <Button 
+                    onClick={() => login()} 
+                    disabled={loading}
+                    className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                >
+                    {loading ? "Waiting for Signature..." : "Sign Message"}
+                </Button>
+            </div>
         ) : (
             <div className="p-6 pt-0">
                 <Tabs defaultValue="deposit" className="w-full">
@@ -144,39 +289,115 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                     </TabsList>
 
                     <TabsContent value="deposit" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
-                    <div className="space-y-3">
-                        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Currency</Label>
-                        <div className="flex gap-2">
-                            <Button size="sm" className="flex-1 bg-casino-brand text-black hover:bg-casino-brand-hover font-bold border-0">BTC</Button>
-                            <Button size="sm" variant="outline" className="flex-1 border-white/10 hover:bg-white/5 text-muted-foreground hover:text-white">ETH</Button>
-                            <Button size="sm" variant="outline" className="flex-1 border-white/10 hover:bg-white/5 text-muted-foreground hover:text-white">USDT</Button>
+                      {isSuccess ? (
+                        <div className="flex flex-col items-center justify-center py-6">
+                          <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
+                            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                          </div>
+                          <h3 className="text-lg font-bold text-emerald-400">Deposit Successful!</h3>
+                          <p className="text-muted-foreground mt-2 text-center text-sm">
+                            Your deposit of <span className="text-white font-bold">{amount} {TOKEN_SYMBOL}</span> has been submitted.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Balance will update after blockchain confirmation.
+                          </p>
+                          <Button 
+                            onClick={() => setIsSuccess(false)}
+                            className="mt-4"
+                            variant="outline"
+                            size="sm"
+                          >
+                            Make Another Deposit
+                          </Button>
                         </div>
-                    </div>
-                    
-                    <div className="p-5 bg-black/40 rounded-xl border border-white/10 flex flex-col items-center gap-5 mt-4">
-                        <div className="w-40 h-40 bg-white p-2.5 rounded-xl shadow-lg shadow-black/20">
-                            {/* QR Code Placeholder - In a real app use a QR library */}
-                            <div className="w-full h-full bg-black pattern-dots pattern-white/10 pattern-bg-white pattern-size-4 pattern-opacity-100">
-                                {/* Use a real QR code component here */}
+                      ) : (
+                        <div className="space-y-4">
+                          {/* Amount Input */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Amount</span>
+                              <span className="text-muted-foreground">
+                                Balance: {balance ? parseFloat(formatUnits(balance, TOKEN_DECIMALS)).toFixed(4) : '0.0000'} {TOKEN_SYMBOL}
+                              </span>
                             </div>
-                        </div>
-                        <div className="w-full space-y-2">
-                            <Label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Deposit Address</Label>
-                            <div className="flex gap-2 group">
-                                <Input 
-                                    readOnly 
-                                    value="1A1zP1e...divfNa" 
-                                    className="font-mono text-xs bg-black/20 border-white/10 text-white/80 focus-visible:ring-1 focus-visible:ring-casino-brand/50 h-10" 
-                                />
-                                <Button size="icon" variant="outline" className="h-10 w-10 border-white/10 bg-transparent hover:bg-white/5 hover:text-white shrink-0">
-                                    <Copy className="h-4 w-4" />
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                placeholder="0.00"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                className="bg-black/30 border-white/10 text-white text-xl h-12 pr-16"
+                                disabled={isProcessing}
+                              />
+                              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                {TOKEN_SYMBOL}
+                              </span>
+                            </div>
+                            
+                            {/* Quick amounts */}
+                            <div className="flex gap-2">
+                              {['50', '100', '500', 'MAX'].map((val) => (
+                                <Button
+                                  key={val}
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex-1 text-xs border-white/10 hover:bg-white/10 h-8"
+                                  onClick={() => {
+                                    if (val === 'MAX' && balance) {
+                                      setAmount(formatUnits(balance, TOKEN_DECIMALS));
+                                    } else {
+                                      setAmount(val);
+                                    }
+                                  }}
+                                  disabled={isProcessing}
+                                >
+                                  {val === 'MAX' ? 'Max' : `$${val}`}
                                 </Button>
+                              ))}
                             </div>
+                          </div>
+
+                          {amount && !hasSufficientBalance && (
+                            <p className="text-red-500 text-sm">Insufficient balance</p>
+                          )}
+
+                          {/* Terms */}
+                          <div className="flex items-center space-x-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                            <Checkbox 
+                              id="terms-modal" 
+                              checked={termsAccepted}
+                              onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
+                              disabled={isProcessing}
+                            />
+                            <label htmlFor="terms-modal" className="text-sm cursor-pointer">
+                              I am 18+ and agree to the terms of service
+                            </label>
+                          </div>
+
+                          {/* Deposit Button */}
+                          <Button 
+                            onClick={handleDeposit}
+                            className="w-full h-11 bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
+                            disabled={isProcessing || !amount || !hasSufficientBalance || !termsAccepted}
+                          >
+                            {isProcessing ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                Deposit {amount ? `${amount} ${TOKEN_SYMBOL}` : ''}
+                                <ArrowRight className="ml-2 h-4 w-4" />
+                              </>
+                            )}
+                          </Button>
+
+                          <p className="text-xs text-muted-foreground text-center">
+                            You'll be asked to sign terms, approve tokens (if needed), then confirm deposit.
+                          </p>
                         </div>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground/60 text-center font-medium">
-                        Min deposit: 0.0001 BTC • 1 Confirmation
-                    </p>
+                      )}
                     </TabsContent>
 
                     <TabsContent value="withdraw" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">

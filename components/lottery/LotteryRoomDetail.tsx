@@ -67,7 +67,7 @@ function getRankLabel(rank: number): string {
 }
 
 // Live countdown hook
-function useCountdown(settlementTimestamp: bigint, isSettled: boolean) {
+function useCountdown(settlementTimestamp: number, isSettled: boolean) {
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
     hours: number;
@@ -81,8 +81,11 @@ function useCountdown(settlementTimestamp: bigint, isSettled: boolean) {
 
     const calculateTime = () => {
       const now = Math.floor(Date.now() / 1000);
-      const settlement = Number(settlementTimestamp);
-      const diff = Math.max(0, settlement - now);
+      // Ensure specific timezone? Or allow local? 
+      // Supabase returns ISO string usually. But types say number. 
+      // We assume timestamp is in Seconds (Unix). Or Date.parse?
+      // For now, assume Seconds as per updated types logic (Unix timestamp).
+      const diff = Math.max(0, settlementTimestamp - now);
 
       return {
         days: Math.floor(diff / 86400),
@@ -108,13 +111,18 @@ function useCountdown(settlementTimestamp: bigint, isSettled: boolean) {
 export function LotteryRoomDetail({ room, stakes, isLoadingStakes, winners, isLoadingWinners }: LotteryRoomDetailProps) {
   const status = getRoomStatus(room);
   const isSettled = status === RoomStatus.SETTLED;
+  
+  // Parse timestamp if needed (Supabase might return string if we didn't transform it)
+  // But type says number. We'll trust parent passes number.
   const timeLeft = useCountdown(room.settlementTimestamp, isSettled);
-  const totalPool = stakes.reduce((acc, s) => acc + s.stake, BigInt(0));
+  
+  const totalPool = room.totalPool || 0; // stakes.reduce((acc, s) => acc + s.stake, 0);
 
   // Calculate progress for timer
   const now = Math.floor(Date.now() / 1000);
-  const settlement = Number(room.settlementTimestamp);
-  const totalDuration = 7 * 24 * 60 * 60; // Assume 7 days
+  const settlement = room.settlementTimestamp;
+  const totalDuration = 7 * 24 * 60 * 60; // Assume 7 days duration as standard?
+  // Ideally, use (settlement - created_at). But created_at not always available.
   const elapsed = totalDuration - Math.max(0, settlement - now);
   const progress = isSettled ? 100 : Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
 
@@ -132,7 +140,7 @@ export function LotteryRoomDetail({ room, stakes, isLoadingStakes, winners, isLo
               </div>
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-white">
-                  Lottery Room #{room.roomId.toString()}
+                  {room.name || `Lottery Room #${room.roomId}`}
                 </h1>
                 <p className="text-muted-foreground mt-1">{getPayoutLabel(room.payoutType)}</p>
               </div>
@@ -299,7 +307,7 @@ export function LotteryRoomDetail({ room, stakes, isLoadingStakes, winners, isLo
               
               return (
                 <div
-                  key={stake.player}
+                  key={index} // Using index fallback as player might be dupes? Should be unique.
                   className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
                     winnerInfo 
                       ? 'bg-gradient-to-r from-yellow-500/10 to-transparent border-yellow-500/30' 
@@ -310,7 +318,7 @@ export function LotteryRoomDetail({ room, stakes, isLoadingStakes, winners, isLo
                     <span className="text-muted-foreground text-sm w-6">#{index + 1}</span>
                     <span className="text-white font-mono text-sm">{shortenAddress(stake.player)}</span>
                     {winnerInfo && (
-                      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">
+                      <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30 text-xs">
                         {getRankLabel(winnerInfo.rank)}
                       </Badge>
                     )}

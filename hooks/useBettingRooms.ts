@@ -1,404 +1,245 @@
 'use client';
 
-import { useReadContract, useReadContracts, useWriteContract, useAccount } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
-import { CONTRACTS } from '@/lib/contracts';
-import { RoomWithPlayers, PlayerStake, WinnerInfo } from '@/types/lottery';
-import { useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { createClient } from '@/lib/supabase';
+import { RoomWithPlayers, PlayerStake, BettingRoom, PayoutType, WinnerInfo, getRoomStatus, RoomStatus } from '@/types/lottery';
 
-const bettingRoomsContract = {
-  address: CONTRACTS.BettingRooms.address,
-  abi: CONTRACTS.BettingRooms.abi,
-  chainId: sepolia.id,
-} as const;
-
-const tokenContract = {
-  address: CONTRACTS.MockERC20.address,
-  abi: CONTRACTS.MockERC20.abi,
-  chainId: sepolia.id,
-} as const;
-
-// Get the total number of rooms
-export function useNextRoomId() {
-  return useReadContract({
-    ...bettingRoomsContract,
-    functionName: 'nextRoomId',
-  });
-}
-
-// Get all rooms data with real blockchain data
+// Get all rooms data from Supabase
 export function useAllRooms() {
-  const { data: nextRoomId, isLoading: isLoadingCount, error: countError } = useNextRoomId();
+  const [rooms, setRooms] = useState<RoomWithPlayers[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const supabase = createClient();
 
-  const roomCount = nextRoomId ? Number(nextRoomId) : 0;
+  const fetchRooms = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-  // Create array of room IDs to fetch
-  const roomIds = useMemo(() => {
-    return Array.from({ length: roomCount }, (_, i) => BigInt(i));
-  }, [roomCount]);
+      // Fetch rooms
+      const { data: roomsData, error: roomsError } = await supabase
+        .from('lottery_rooms')
+        .select('*')
+        .order('settlement_time', { ascending: true });
 
-  // Batch fetch all room data
-  const { data: roomsData, isLoading: isLoadingRooms, error: roomsError, refetch } = useReadContracts({
-    contracts: roomIds.map((roomId) => ({
-      ...bettingRoomsContract,
-      functionName: 'rooms' as const,
-      args: [roomId],
-    })),
-  });
+      if (roomsError) throw roomsError;
 
-  // Batch fetch player arrays for each room
-  const { data: playersData, isLoading: isLoadingPlayers } = useReadContracts({
-    contracts: roomIds.map((roomId) => ({
-      ...bettingRoomsContract,
-      functionName: 'getRoomPlayers' as const,
-      args: [roomId],
-    })),
-  });
+      // Fetch all entries (players) for these rooms
+      // In a large app, we might want to paginate or fetch per room, but for now fetch all active entries
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('lottery_entries')
+        .select('room_id, user_id, stake_amount');
 
-  // Build flat list of all player stake queries
-  const allStakeQueries = useMemo(() => {
-    if (!playersData) return [];
-    
-    const queries: { roomIndex: number; roomId: bigint; player: `0x${string}` }[] = [];
-    
-    playersData.forEach((result, roomIndex) => {
-      if (result.status === 'success' && result.result) {
-        const players = result.result as `0x${string}`[];
-        const roomId = roomIds[roomIndex];
-        players.forEach((player) => {
-          queries.push({ roomIndex, roomId, player });
+      if (entriesError) throw entriesError;
+
+      // Group entries by room
+      const entriesByRoom: Record<string, { user_id: string; stake_amount: number }[]> = {};
+      entriesData?.forEach((entry) => {
+        if (!entriesByRoom[entry.room_id]) {
+          entriesByRoom[entry.room_id] = [];
+        }
+        entriesByRoom[entry.room_id].push({
+          user_id: entry.user_id,
+          stake_amount: Number(entry.stake_amount),
         });
-      }
-    });
-    
-    return queries;
-  }, [playersData, roomIds]);
-
-  // Batch fetch all player stakes
-  const { data: stakesData, isLoading: isLoadingStakes } = useReadContracts({
-    contracts: allStakeQueries.map((q) => ({
-      ...bettingRoomsContract,
-      functionName: 'getPlayerStake' as const,
-      args: [q.roomId, q.player],
-    })),
-  });
-
-  // Fetch withdrawable balances for winner detection
-  const { data: allUsersData, isLoading: isLoadingBalances } = useReadContract({
-    ...bettingRoomsContract,
-    functionName: 'getAllUsersWithBalances',
-  });
-
-  const rooms: RoomWithPlayers[] = useMemo(() => {
-    if (!roomsData || roomsData.length === 0) return [];
-
-    // Build stake sums per room
-    const roomStakeSums: Map<number, bigint> = new Map();
-    
-    if (stakesData) {
-      allStakeQueries.forEach((q, i) => {
-        if (stakesData[i]?.status === 'success') {
-          const stake = stakesData[i].result as bigint;
-          const current = roomStakeSums.get(q.roomIndex) || BigInt(0);
-          roomStakeSums.set(q.roomIndex, current + stake);
-        }
       });
-    }
 
-    // Parse winner data from withdrawable balances
-    let winnersWithBalances: { address: `0x${string}`; balance: bigint }[] = [];
-    if (allUsersData) {
-      const [addresses, balances] = allUsersData as [`0x${string}`[], bigint[]];
-      winnersWithBalances = addresses
-        .map((addr, i) => ({ address: addr, balance: balances[i] }))
-        .filter(w => w.balance > BigInt(0))
-        .sort((a, b) => Number(b.balance - a.balance));
-    }
+      // Transform to RoomWithPlayers
+      const formattedRooms: RoomWithPlayers[] = roomsData.map((room) => {
+        const roomEntries = entriesByRoom[room.id] || [];
+        const players = roomEntries.map(e => e.user_id);
+        const totalPool = roomEntries.reduce((sum, e) => sum + e.stake_amount, 0);
 
-    return roomsData
-      .map((result, index) => {
-        if (result.status !== 'success' || !result.result) return null;
+        // Convert Supabase timestamp (ISO string) to unix timestamp (seconds)
+        const settlementTimestamp = Math.floor(new Date(room.settlement_time).getTime() / 1000);
 
-        // Handle both array and object return types from wagmi
-        const data = result.result;
-        let roomId: bigint, minStakeAmount: bigint, maxStakeAmount: bigint, 
-            settlementTimestamp: bigint, closed: boolean, settled: boolean, payoutType: number;
+        const bettingRoom: BettingRoom = {
+          id: room.id,
+          roomId: room.id, // Use UUID as roomId
+          name: room.name || `Room ${room.id.slice(0, 8)}`,
+          minStakeAmount: Number(room.min_stake),
+          maxStakeAmount: Number(room.max_stake),
+          settlementTimestamp,
+          closed: room.status === 'closed' || room.status === 'settled',
+          settled: room.status === 'settled',
+          payoutType: room.payout_type as PayoutType, // stored as string in DB
+          created_by: room.created_by
+        };
 
-        if (Array.isArray(data)) {
-          [roomId, minStakeAmount, maxStakeAmount, settlementTimestamp, closed, settled, payoutType] = data as [bigint, bigint, bigint, bigint, boolean, boolean, number];
-        } else {
-          // Object with named properties
-          const obj = data as unknown as {
-            roomId: bigint;
-            minStakeAmount: bigint;
-            maxStakeAmount: bigint;
-            settlementTimestamp: bigint;
-            closed: boolean;
-            settled: boolean;
-            payoutType: number;
-          };
-          roomId = obj.roomId;
-          minStakeAmount = obj.minStakeAmount;
-          maxStakeAmount = obj.maxStakeAmount;
-          settlementTimestamp = obj.settlementTimestamp;
-          closed = obj.closed;
-          settled = obj.settled;
-          payoutType = obj.payoutType;
-        }
-
-        const players = playersData?.[index]?.status === 'success' 
-          ? (playersData[index].result as `0x${string}`[]) 
-          : [];
-
-        // Use calculated total pool from actual stakes
-        const totalPool = roomStakeSums.get(index) || BigInt(0);
-
-        // Determine winners for settled rooms
-        let winners: WinnerInfo[] | undefined;
-        if (settled && winnersWithBalances.length > 0) {
-          // Find players from this room who have withdrawable balances
-          const roomPlayerSet = new Set(players.map(p => p.toLowerCase()));
-          const roomWinners = winnersWithBalances.filter(w => 
-            roomPlayerSet.has(w.address.toLowerCase())
-          );
-
-          if (roomWinners.length > 0) {
-            if (payoutType === 0) {
-              // WINNER_TAKES_ALL
-              winners = [{
-                address: roomWinners[0].address,
-                prize: totalPool,
-                rank: 1,
-              }];
-            } else {
-              // TOP_3
-              const prizes = [50, 30, 20];
-              winners = roomWinners.slice(0, 3).map((w, i) => ({
-                address: w.address,
-                prize: (totalPool * BigInt(prizes[i] || 0)) / BigInt(100),
-                rank: i + 1,
-              }));
-            }
-          }
+        // If settled, parse winners from JSONB if available
+        let winners: WinnerInfo[] | undefined = undefined;
+        if (room.winners) {
+          // Assuming room.winners is stored exactly as WinnerInfo[] or compatible JSON
+          winners = room.winners as WinnerInfo[];
         }
 
         return {
-          roomId,
-          minStakeAmount,
-          maxStakeAmount,
-          settlementTimestamp,
-          closed,
-          settled,
-          payoutType,
+          ...bettingRoom,
           players,
           totalPool,
-          winners,
-        } as RoomWithPlayers;
+          winners
+        };
+      });
+
+      setRooms(formattedRooms);
+    } catch (err: any) {
+      console.error('Error fetching rooms:', err);
+      setError(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRooms();
+    
+    // Realtime subscription for room updates could be added here
+    const channel = supabase
+      .channel('public:lottery_rooms')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lottery_rooms' }, () => {
+        fetchRooms();
       })
-      .filter((room): room is RoomWithPlayers => room !== null);
-  }, [roomsData, playersData, stakesData, allStakeQueries, allUsersData]);
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchRooms]);
 
   return {
     rooms,
-    isLoading: isLoadingCount || isLoadingRooms || isLoadingPlayers || isLoadingStakes || isLoadingBalances,
-    error: countError || roomsError,
-    refetch,
+    isLoading,
+    error,
+    refetch: fetchRooms,
   };
 }
 
 // Get single room with players and stakes
-export function useRoom(roomId: bigint) {
-  // Get room data
-  const { data: roomData, isLoading: isLoadingRoom, error: roomError } = useReadContract({
-    ...bettingRoomsContract,
-    functionName: 'rooms',
-    args: [roomId],
-  });
+export function useRoom(roomId: string) {
+  const [room, setRoom] = useState<RoomWithPlayers | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const supabase = createClient();
 
-  // Get players list
-  const { data: players, isLoading: isLoadingPlayers } = useReadContract({
-    ...bettingRoomsContract,
-    functionName: 'getRoomPlayers',
-    args: [roomId],
-  });
+  const fetchRoom = useCallback(async () => {
+    if (!roomId) return;
+    
+    try {
+      setIsLoading(true);
+      setError(null);
 
-  // Get stakes for all players
-  const playerList = (players as `0x${string}`[]) || [];
-  
-  const { data: stakesData, isLoading: isLoadingStakes } = useReadContracts({
-    contracts: playerList.map((player) => ({
-      ...bettingRoomsContract,
-      functionName: 'getPlayerStake' as const,
-      args: [roomId, player],
-    })),
-  });
+      // Fetch room data
+      const { data: roomData, error: roomError } = await supabase
+        .from('lottery_rooms')
+        .select('*')
+        .eq('id', roomId)
+        .single();
 
-  const room: RoomWithPlayers | null = useMemo(() => {
-    if (!roomData) return null;
+      if (roomError) throw roomError;
+      if (!roomData) throw new Error('Room not found');
 
-    const [id, minStakeAmount, maxStakeAmount, settlementTimestamp, closed, settled, payoutType] = roomData as [bigint, bigint, bigint, bigint, boolean, boolean, number];
+      // Fetch entries
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('lottery_entries')
+        .select('user_id, stake_amount')
+        .eq('room_id', roomId);
 
-    // Calculate total pool from actual stakes
-    let totalPool = BigInt(0);
-    if (stakesData) {
-      stakesData.forEach((result) => {
-        if (result.status === 'success') {
-          totalPool += result.result as bigint;
-        }
-      });
+      if (entriesError) throw entriesError;
+
+      const roomEntries = entriesData || [];
+      const players = roomEntries.map(e => e.user_id);
+      const totalPool = roomEntries.reduce((sum, e) => sum + Number(e.stake_amount), 0);
+      const settlementTimestamp = Math.floor(new Date(roomData.settlement_time).getTime() / 1000);
+
+      const bettingRoom: BettingRoom = {
+        id: roomData.id,
+        roomId: roomData.id,
+        name: roomData.name,
+        minStakeAmount: Number(roomData.min_stake),
+        maxStakeAmount: Number(roomData.max_stake),
+        settlementTimestamp,
+        closed: roomData.status === 'closed' || roomData.status === 'settled',
+        settled: roomData.status === 'settled',
+        payoutType: roomData.payout_type as PayoutType,
+        created_by: roomData.created_by
+      };
+
+      const roomWithPlayers: RoomWithPlayers = {
+        ...bettingRoom,
+        players,
+        totalPool,
+        winners: roomData.winners as WinnerInfo[] | undefined
+      };
+
+      setRoom(roomWithPlayers);
+    } catch (err: any) {
+      console.error('Error fetching room:', err);
+      setError(err);
+    } finally {
+      setIsLoading(false);
     }
+  }, [roomId]);
 
-    return {
-      roomId: id,
-      minStakeAmount,
-      maxStakeAmount,
-      settlementTimestamp,
-      closed,
-      settled,
-      payoutType,
-      players: playerList,
-      totalPool,
+  useEffect(() => {
+    fetchRoom();
+
+    const channel = supabase
+      .channel(`room:${roomId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lottery_rooms', filter: `id=eq.${roomId}` }, () => {
+        fetchRoom();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lottery_entries', filter: `room_id=eq.${roomId}` }, () => {
+        fetchRoom();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-  }, [roomData, playerList, stakesData]);
+  }, [fetchRoom, roomId]);
 
   return {
     room,
-    isLoading: isLoadingRoom || isLoadingPlayers || isLoadingStakes,
-    error: roomError,
+    isLoading,
+    error,
+    refetch: fetchRoom
   };
 }
 
 // Get player stakes for a room
-export function usePlayerStakes(roomId: bigint, players: `0x${string}`[]) {
-  const { data: stakesData, isLoading } = useReadContracts({
-    contracts: players.map((player) => ({
-      ...bettingRoomsContract,
-      functionName: 'getPlayerStake' as const,
-      args: [roomId, player],
-    })),
-  });
+// This is now redundant as useRoom returns players and total pool, 
+// but we might want individual stakes map.
+export function usePlayerStakes(roomId: string) {
+  const [stakes, setStakes] = useState<PlayerStake[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const supabase = createClient();
 
-  const stakes: PlayerStake[] = useMemo(() => {
-    if (!stakesData) return [];
+  useEffect(() => {
+    async function fetchStakes() {
+      if (!roomId) return;
+      try {
+        const { data, error } = await supabase
+          .from('lottery_entries')
+          .select('user_id, stake_amount')
+          .eq('room_id', roomId);
 
-    return players.map((player, index) => ({
-      player,
-      stake: stakesData[index]?.status === 'success' 
-        ? (stakesData[index].result as bigint) 
-        : BigInt(0),
-    }));
-  }, [stakesData, players]);
+        if (error) throw error;
 
-  return { stakes, isLoading };
-}
+        const formattedStakes: PlayerStake[] = (data || []).map(e => ({
+          player: e.user_id,
+          stake: Number(e.stake_amount)
+        }));
 
-// Token balance hook
-export function useTokenBalance(address: `0x${string}` | undefined) {
-  return useReadContract({
-    ...tokenContract,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-  });
-}
-
-// Token allowance hook
-export function useTokenAllowance(owner: `0x${string}` | undefined) {
-  return useReadContract({
-    ...tokenContract,
-    functionName: 'allowance',
-    args: owner ? [owner, CONTRACTS.BettingRooms.address] : undefined,
-  });
-}
-
-// Token decimals hook
-export function useTokenDecimals() {
-  return useReadContract({
-    ...tokenContract,
-    functionName: 'decimals',
-  });
-}
-
-// Join room write hook
-export function useJoinRoom() {
-  const { writeContract, isPending, isSuccess, error, data } = useWriteContract();
-
-  const joinRoom = (roomId: bigint, stakeAmount: bigint) => {
-    writeContract({
-      ...bettingRoomsContract,
-      functionName: 'joinRoom',
-      args: [roomId, stakeAmount],
-    });
-  };
-
-  return { joinRoom, isPending, isSuccess, error, txHash: data };
-}
-
-// Approve tokens write hook
-export function useApproveTokens() {
-  const { writeContract, isPending, isSuccess, error, data } = useWriteContract();
-
-  const approve = (amount: bigint) => {
-    writeContract({
-      ...tokenContract,
-      functionName: 'approve',
-      args: [CONTRACTS.BettingRooms.address, amount],
-    });
-  };
-
-  return { approve, isPending, isSuccess, error, txHash: data };
-}
-
-// Fetch winners for a settled room from blockchain events
-export function useRoomWinners(roomId: bigint, isSettled: boolean, totalPool: bigint, payoutType: number) {
-  // We'll use useReadContract to get withdrawable balances for players after settlement
-  // Since the contract doesn't store winners directly, we check withdrawable balances
-  
-  const { data: allUsersData, isLoading } = useReadContract({
-    ...bettingRoomsContract,
-    functionName: 'getAllUsersWithBalances',
-    query: {
-      enabled: isSettled, // Only fetch if room is settled
-    },
-  });
-
-  const winners = useMemo(() => {
-    if (!isSettled || !allUsersData) return [];
-
-    const [addresses, balances] = allUsersData as [`0x${string}`[], bigint[]];
-    
-    // Filter users with positive withdrawable balances (these are winners)
-    const winnersWithBalances = addresses
-      .map((addr, i) => ({ address: addr, balance: balances[i] }))
-      .filter(w => w.balance > BigInt(0))
-      .sort((a, b) => Number(b.balance - a.balance)); // Sort by balance descending
-
-    // Calculate prize distribution based on payout type
-    if (payoutType === 0) {
-      // WINNER_TAKES_ALL - single winner gets 100%
-      if (winnersWithBalances.length > 0) {
-        return [{
-          address: winnersWithBalances[0].address,
-          prize: totalPool,
-          rank: 1,
-        }];
+        setStakes(formattedStakes);
+      } catch (err) {
+        console.error('Error fetching stakes:', err);
+      } finally {
+        setIsLoading(false);
       }
-    } else {
-      // TOP_3 - 50%, 30%, 20% split
-      const prizes = [
-        { percent: 50, rank: 1 },
-        { percent: 30, rank: 2 },
-        { percent: 20, rank: 3 },
-      ];
-      
-      return winnersWithBalances.slice(0, 3).map((w, i) => ({
-        address: w.address,
-        prize: (totalPool * BigInt(prizes[i]?.percent || 0)) / BigInt(100),
-        rank: prizes[i]?.rank || i + 1,
-      }));
     }
 
-    return [];
-  }, [isSettled, allUsersData, totalPool, payoutType]);
+    fetchStakes();
+  }, [roomId]);
 
-  return { winners, isLoading };
+  return { stakes, isLoading };
 }

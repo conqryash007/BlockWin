@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { BetslipProvider } from "@/hooks/useBetslip";
 import { BetslipDrawer } from "@/components/betslip/BetslipDrawer";
 import { Providers } from "./providers";
+import { AgeDisclaimer } from "@/components/AgeDisclaimer";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -43,6 +44,7 @@ export default function RootLayout({
                         </div>
                     </main>
                     <BetslipDrawer />
+                    <AgeDisclaimer />
                 </div>
             </div>
           </BetslipProvider>

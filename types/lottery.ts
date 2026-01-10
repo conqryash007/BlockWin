@@ -1,8 +1,8 @@
 // Lottery/Betting Rooms Types
 
 export enum PayoutType {
-  WINNER_TAKES_ALL = 0,
-  SPLIT = 1, // TOP_3
+  WINNER_TAKES_ALL = 'winner_takes_all',
+  SPLIT = 'split',
 }
 
 export enum RoomStatus {
@@ -12,64 +12,63 @@ export enum RoomStatus {
 }
 
 export interface BettingRoom {
-  roomId: bigint;
-  minStakeAmount: bigint;
-  maxStakeAmount: bigint;
-  settlementTimestamp: bigint;
+  id: string; // UUID from Supabase
+  roomId: string; // Display ID? Or just use name
+  name: string;
+  minStakeAmount: number;
+  maxStakeAmount: number;
+  settlementTimestamp: number; // Unix timestamp (seconds or ms?) Backend uses ISO string usually, but we can convert.
+  // Backend returns "settlement_time" ISO string. Frontend usually wants number for calc.
+  // I'll map it.
   closed: boolean;
   settled: boolean;
   payoutType: PayoutType;
+  created_by: string;
 }
 
 export interface WinnerInfo {
-  address: `0x${string}`;
-  prize: bigint;
-  rank: number; // 1st, 2nd, 3rd
+  address: string; // User ID or wallet address
+  prize: number;
+  rank: number; 
 }
 
 export interface RoomWithPlayers extends BettingRoom {
-  players: `0x${string}`[];
-  totalPool: bigint;
+  players: string[]; // User IDs (UUIDs)
+  totalPool: number;
   winners?: WinnerInfo[];
 }
 
 export interface PlayerStake {
-  player: `0x${string}`;
-  stake: bigint;
-}
-
-export interface LotteryFilters {
-  status: 'all' | RoomStatus;
-  payoutType: 'all' | PayoutType;
+  player: string;
+  stake: number;
 }
 
 // Helper to derive room status from room data
 export function getRoomStatus(room: BettingRoom): RoomStatus {
   if (room.settled) return RoomStatus.SETTLED;
   if (room.closed) return RoomStatus.CLOSED;
+  
+  const now = Math.floor(Date.now() / 1000);
+  if (now >= room.settlementTimestamp) return RoomStatus.CLOSED;
+  
   return RoomStatus.OPEN;
 }
 
 import { formatUnits } from 'viem';
 
-// ... existing enums and interfaces ...
-
-// Format token amount to USD (MockERC20 uses 6 decimals like USDT)
-// Token decimals: 6 (verify with token.decimals() call)
-export function formatTokenToUSD(amount: bigint, decimals: number = 6): string {
-  const value = Number(amount) / Math.pow(10, decimals);
+// Format token amount to USD
+// Input amount is Number (USDT usually)
+export function formatTokenToUSD(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(amount);
 }
 
-export function formatTokenBalance(amount: bigint, decimals: number = 18): string {
-  const value = formatUnits(amount, decimals);
-  // Format to 2 decimal places
-  const formatted = Number(value).toLocaleString('en-US', {
+export function formatTokenBalance(amount: number): string {
+  const formatted = amount.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -78,5 +77,7 @@ export function formatTokenBalance(amount: bigint, decimals: number = 18): strin
 
 // Shorten address for display
 export function shortenAddress(address: string): string {
+  if (!address) return '';
+  if (address.length < 10) return address; // Usernames?
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }

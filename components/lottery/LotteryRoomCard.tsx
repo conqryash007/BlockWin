@@ -26,7 +26,7 @@ function getPayoutLabel(payoutType: PayoutType): string {
 }
 
 // Live countdown timer hook
-function useCountdown(settlementTimestamp: bigint, isSettled: boolean) {
+function useCountdown(settlementTimestamp: number, isSettled: boolean) {
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
     hours: number;
@@ -40,7 +40,7 @@ function useCountdown(settlementTimestamp: bigint, isSettled: boolean) {
 
     const calculateTime = () => {
       const now = Math.floor(Date.now() / 1000);
-      const settlement = Number(settlementTimestamp);
+      const settlement = settlementTimestamp;
       const diff = Math.max(0, settlement - now);
 
       return {

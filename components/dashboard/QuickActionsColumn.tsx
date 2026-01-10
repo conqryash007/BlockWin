@@ -8,7 +8,8 @@ import {
   Banknote, 
   Bell 
 } from "lucide-react";
-import Link from "next/link";
+import { DepositModal } from "@/components/wallet/DepositModal";
+import { useAuth } from "@/hooks/useAuth";
 
 interface QuickActionsColumnProps {
   className?: string;
@@ -21,27 +22,31 @@ const MARKET_CHIPS = [
 ];
 
 export function QuickActionsColumn({ className }: QuickActionsColumnProps) {
+  const { isAuthenticated } = useAuth();
+  
   return (
     <div className={cn("space-y-4", className)}>
       {/* Action Buttons */}
       <div className="grid grid-cols-2 gap-2">
-        <Link href="/wallet/deposit">
-          <Button 
-            className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all"
-          >
-            <ArrowDownToLine className="w-4 h-4 mr-2" />
-            Deposit
-          </Button>
-        </Link>
-        <Link href="/wallet/withdraw">
-          <Button 
-            variant="outline"
-            className="w-full h-12 border-white/10 hover:bg-white/5 font-bold"
-          >
-            <ArrowUpFromLine className="w-4 h-4 mr-2" />
-            Withdraw
-          </Button>
-        </Link>
+        {isAuthenticated ? (
+            <DepositModal />
+        ) : (
+            <Button 
+              disabled 
+              className="w-full h-12 bg-white/5 text-muted-foreground font-bold border border-white/5 cursor-not-allowed opacity-50"
+            >
+              Deposit
+            </Button>
+        )}
+        
+        <Button 
+          variant="outline"
+          className="w-full h-12 border-white/10 hover:bg-white/5 font-bold"
+          disabled={!isAuthenticated}
+        >
+          <ArrowUpFromLine className="w-4 h-4 mr-2" />
+          Withdraw
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-2">

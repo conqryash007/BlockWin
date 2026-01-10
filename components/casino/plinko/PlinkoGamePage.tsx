@@ -1,16 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PlinkoHeader } from "./PlinkoHeader";
 import { BetControls } from "./BetControls";
 import { PlinkoDisplay } from "./PlinkoDisplay";
 import { PlinkoEducation } from "./PlinkoEducation";
-
-const MULTIPLIERS = [0.5, 1, 2, 5, 10, 5, 2, 1, 0.5];
+import { createClient } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
+import { useAccount } from "wagmi";
 
 export function PlinkoGamePage() {
+  const { address } = useAccount();
+  const { login } = useAuth();
+  const supabase = createClient();
+
   // Game State
-  const [balance, setBalance] = useState(1243.50);
+  const [balance, setBalance] = useState(0);
   const [betAmount, setBetAmount] = useState(10);
   
   // Drop State
@@ -18,53 +24,78 @@ export function PlinkoGamePage() {
   const [result, setResult] = useState<number | null>(null);
   const [path, setPath] = useState<number[] | null>(null);
   const [gameId, setGameId] = useState(0);
+  const [pendingBalance, setPendingBalance] = useState(0);
+  const [lastWin, setLastWin] = useState(0);
+
+  // Fetch Balance
+  useEffect(() => {
+    if (!address) {
+       setBalance(0);
+       return;
+    }
+    const fetchBalance = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { data } = await supabase.from('balances').select('amount').eq('user_id', user.id).single();
+            if (data) setBalance(Number(data.amount));
+        }
+    };
+    fetchBalance();
+  }, [address, supabase]);
 
   const handleDrop = async () => {
-    if (betAmount > balance || betAmount <= 0) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+        toast.info("Please sign in to play");
+        await login();
+        return;
+    }
+
+    if (betAmount > balance || betAmount <= 0) {
+        if (betAmount > balance) toast.error("Insufficient balance");
+        return;
+    }
     
     setIsDropping(true);
     setResult(null);
     setPath(null);
-    setGameId(prev => prev + 1);
     
-    // Deduct bet
-    setBalance(prev => prev - betAmount);
+    try {
+        const { data, error } = await supabase.functions.invoke('game-plinko', {
+            body: { 
+                betAmount, 
+                rows: 8, // Default 8 for now
+                risk: 'low', // Default low for now
+                clientSeed: "default"
+            }
+        });
 
-    // Generate Path (0 = Left, 1 = Right)
-    // For 8 rows, we need 8 decisions
-    // This determines the final bucket
-    const newPath: number[] = [];
-    for(let i=0; i<8; i++) {
-        newPath.push(Math.random() > 0.5 ? 1 : 0);
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
+        
+        // Deduct from visual balance immediately (API already deducted)
+        setBalance(prev => prev - betAmount); 
+
+        setPath(data.path);
+        setResult(data.bucket);
+        setPendingBalance(data.balance); // Store final balance (with winnings)
+        setLastWin(data.payout);
+        setGameId(prev => prev + 1);
+
+    } catch (err: any) {
+        console.error(err);
+        toast.error(err.message);
+        setIsDropping(false);
     }
-    
-    // Calculate result index based on path (sum of rights)
-    // 0 rights = leftmost bucket (index 0)
-    // 8 rights = rightmost bucket (index 8)
-    const bucketIndex = newPath.reduce((a, b) => a + b, 0);
-    
-    // Multipliers for 8 rows
-    const MULTIPLIERS_8 = [5.6, 2.1, 1.1, 1, 0.5, 1, 1.1, 2.1, 5.6];
-    const landedMultiplier = MULTIPLIERS_8[bucketIndex];
-    const profit = betAmount * landedMultiplier;
-    
-    
-    setPath(newPath);
-    setResult(bucketIndex);
-    
-    // We add winnings AFTER animation completes (callback from Display)
   };
 
   const onDropComplete = () => {
       setIsDropping(false);
-      // Calculate profit again or store it? 
-      // Re-calculating for safety/simplicity in this scope
-      if (path) {
-          const bucketIndex = path.reduce((a, b) => a + b, 0);
-          const MULTIPLIERS_8 = [5.6, 2.1, 1.1, 1, 0.5, 1, 1.1, 2.1, 5.6];
-          const landedMultiplier = MULTIPLIERS_8[bucketIndex];
-          const profit = betAmount * landedMultiplier;
-          setBalance(prev => prev + profit);
+      // Update balance to true server balance (includes winnings)
+      setBalance(pendingBalance);
+      
+      if (lastWin > 0) {
+          toast.success(`Won ${lastWin.toFixed(2)} USDT!`);
       }
   };
 
@@ -85,7 +116,7 @@ export function PlinkoGamePage() {
                         setBetAmount={setBetAmount}
                         isDropping={isDropping}
                         onDrop={handleDrop}
-                        expectedMultiplier={5.6}
+                        expectedMultiplier={5.6} // Display max mult?
                      />
                  </div>
 

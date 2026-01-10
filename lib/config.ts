@@ -1,14 +1,15 @@
 import { http, createConfig } from 'wagmi'
-import { mainnet, sepolia } from 'wagmi/chains'
+import { sepolia } from 'wagmi/chains'
 import { walletConnect, injected } from 'wagmi/connectors'
-import { SEPOLIA_RPC_URL } from './contracts'
+
+// Sepolia RPC URL with Alchemy
+export const SEPOLIA_RPC_URL = 'https://eth-sepolia.g.alchemy.com/v2/yLWUqQNU-o2A3CDy3FjA0';
 
 export const projectId = '8409c5ec71253f99c76c781324b10720'
 
 export const config = createConfig({
-  chains: [mainnet, sepolia],
+  chains: [sepolia],
   transports: {
-    [mainnet.id]: http(),
     [sepolia.id]: http(SEPOLIA_RPC_URL),
   },
   connectors: [

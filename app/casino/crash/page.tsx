@@ -1,5 +1,10 @@
 import { CrashGamePage } from "@/components/casino/crash/CrashGamePage";
+import { AuthGuard } from "@/components/layout/AuthGuard";
 
 export default function CrashPage() {
-  return <CrashGamePage />;
+  return (
+    <AuthGuard>
+      <CrashGamePage />
+    </AuthGuard>
+  );
 }

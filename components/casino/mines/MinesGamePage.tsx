@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { MinesHeader } from "./MinesHeader";
 import { MinesBetControls } from "./MinesBetControls";
 import { MinesDisplay } from "./MinesDisplay";
 import { MinesEducation } from "./MinesEducation";
+import { createClient } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
+import { useAccount } from "wagmi";
 
 export type TileState = "hidden" | "safe" | "mine";
 export type GameState = "idle" | "playing" | "won" | "lost";
@@ -16,8 +20,12 @@ export interface Tile {
 }
 
 export function MinesGamePage() {
+  const { address } = useAccount();
+  const { login } = useAuth();
+  const supabase = createClient();
+
   // Wallet / Balance State
-  const [balance, setBalance] = useState(1243.50);
+  const [balance, setBalance] = useState(0);
   const [betAmount, setBetAmount] = useState(10);
   
   // Game Config
@@ -28,6 +36,23 @@ export function MinesGamePage() {
   const [grid, setGrid] = useState<Tile[]>(() => createEmptyGrid());
   const [multiplier, setMultiplier] = useState(1.00);
   const [revealedCount, setRevealedCount] = useState(0);
+  const [gameId, setGameId] = useState<string | null>(null);
+
+  // Fetch Balance
+  useEffect(() => {
+    if (!address) {
+       setBalance(0);
+       return;
+    }
+    const fetchBalance = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { data } = await supabase.from('balances').select('amount').eq('user_id', user.id).single();
+            if (data) setBalance(Number(data.amount));
+        }
+    };
+    fetchBalance();
+  }, [address, supabase]);
 
   // Create empty 25-tile grid
   function createEmptyGrid(): Tile[] {
@@ -38,21 +63,19 @@ export function MinesGamePage() {
     }));
   }
 
-  // Calculate multiplier based on mines and revealed tiles
+  // Calculate multiplier based on mines and revealed tiles (Backend Formula Sync)
   const calculateMultiplier = useCallback((revealed: number, mines: number): number => {
     if (revealed === 0) return 1.00;
     
-    const safeTiles = 25 - mines;
-    let multiplier = 1;
-    
+    // Formula: 0.97 / Probability
+    // Probability = Prod((25-mines-i)/(25-i))
+    let probability = 1;
     for (let i = 0; i < revealed; i++) {
-      const remaining = safeTiles - i;
-      const total = 25 - i;
-      // House edge of ~1%
-      multiplier *= (total / remaining) * 0.99;
+        probability *= (25 - mines - i) / (25 - i);
     }
     
-    return Math.round(multiplier * 100) / 100;
+    const mult = 0.97 / probability;
+    return Math.max(1.00, Math.floor(mult * 100) / 100);
   }, []);
 
   // Get next tile multiplier preview
@@ -61,75 +84,126 @@ export function MinesGamePage() {
   }, [calculateMultiplier, revealedCount, mineCount]);
 
   // Start a new game
-  const handleStartGame = useCallback(() => {
-    if (betAmount > balance) return;
-    
-    // Deduct bet
-    setBalance(prev => prev - betAmount);
-    
-    // Generate mine positions
-    const minePositions = new Set<number>();
-    while (minePositions.size < mineCount) {
-      minePositions.add(Math.floor(Math.random() * 25));
+  const handleStartGame = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+        toast.info("Please sign in to play");
+        await login();
+        return;
+    }
+
+    if (betAmount > balance) {
+        toast.error("Insufficient balance");
+        return;
     }
     
-    // Create new grid with mines
-    const newGrid = Array.from({ length: 25 }, (_, i) => ({
-      id: i,
-      state: "hidden" as TileState,
-      isMine: minePositions.has(i),
-    }));
-    
-    setGrid(newGrid);
-    setGameState("playing");
-    setMultiplier(1.00);
-    setRevealedCount(0);
-  }, [betAmount, balance, mineCount]);
+    try {
+        const { data, error } = await supabase.functions.invoke('game-mines', {
+             body: { action: 'start', betAmount, mineCount, clientSeed: "default" }
+        });
 
-  // Handle tile click
-  const handleTileClick = useCallback((tileId: number) => {
-    if (gameState !== "playing") return;
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
+
+        setBalance(data.balance);
+        setGameId(data.gameId);
+        
+        // Reset Grid
+        setGrid(createEmptyGrid());
+        setGameState("playing");
+        setMultiplier(1.00);
+        setRevealedCount(0);
+        
+    } catch (err: any) {
+        console.error(err);
+        toast.error(err.message);
+    }
+  };
+
+  // Handle tile click (Reveal)
+  const handleTileClick = async (tileId: number) => {
+    if (gameState !== "playing" || !gameId) return;
     
     const tile = grid[tileId];
     if (tile.state !== "hidden") return;
     
-    const newGrid = [...grid];
-    
-    if (tile.isMine) {
-      // Hit a mine - reveal all mines
-      newGrid.forEach((t, i) => {
-        if (t.isMine) {
-          newGrid[i] = { ...t, state: "mine" };
+    try {
+        const { data, error } = await supabase.functions.invoke('game-mines', {
+             body: { action: 'reveal', gameId, tileIndex: tileId }
+        });
+
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
+
+        const newGrid = [...grid];
+
+        if (data.win === false) {
+             // Boom
+             data.mines.forEach((idx: number) => {
+                 newGrid[idx] = { ...newGrid[idx], state: "mine", isMine: true };
+             });
+             // Highlight hit
+             if (data.hit !== undefined) newGrid[data.hit] = { ...newGrid[data.hit], state: "mine", isMine: true }; // redundant check
+             
+             setGrid(newGrid);
+             setGameState("lost");
+             toast.error("BOOM! You hit a mine.");
+        } else {
+             // Safe
+             newGrid[tileId] = { ...tile, state: "safe" };
+             setGrid(newGrid);
+             
+             setRevealedCount(prev => prev + 1);
+             setMultiplier(data.multiplier);
+             
+             if (data.active === false && data.win === true) {
+                 // Auto win (all safe revealed)
+                 setGameState("won");
+                 setBalance(data.balance);
+                 toast.success(`Cleared the board! Won ${data.payout.toFixed(2)} USDT`);
+             }
         }
-      });
-      newGrid[tileId] = { ...newGrid[tileId], state: "mine" };
-      setGrid(newGrid);
-      setGameState("lost");
-    } else {
-      // Safe tile
-      newGrid[tileId] = { ...tile, state: "safe" };
-      setGrid(newGrid);
-      
-      const newRevealed = revealedCount + 1;
-      setRevealedCount(newRevealed);
-      setMultiplier(calculateMultiplier(newRevealed, mineCount));
-      
-      // Check if all safe tiles revealed (auto-win)
-      const safeTilesTotal = 25 - mineCount;
-      if (newRevealed >= safeTilesTotal) {
-        handleCashOut();
-      }
+        
+    } catch (err: any) {
+        console.error(err);
+        toast.error(err.message);
     }
-  }, [gameState, grid, revealedCount, mineCount, calculateMultiplier]);
+  };
 
   // Cash out
-  const handleCashOut = useCallback(() => {
-    if (gameState !== "playing" || revealedCount === 0) return;
+  const handleCashOut = async () => {
+    if (gameState !== "playing" || !gameId) return;
     
-    const winnings = betAmount * multiplier;
-    setBalance(prev => prev + winnings);
-    setGameState("won");
-  }, [gameState, revealedCount, betAmount, multiplier]);
+    try {
+         const { data, error } = await supabase.functions.invoke('game-mines', {
+             body: { action: 'cashout', gameId }
+        });
+
+        if (error) throw new Error(error.message);
+        if (data.error) throw new Error(data.error);
+        
+        // Reveal Mines
+        const newGrid = [...grid];
+        data.mines.forEach((idx: number) => {
+             // Only show unrevealed mines? Usually shows all mines on end
+             if (newGrid[idx].state === 'hidden') {
+                 newGrid[idx] = { ...newGrid[idx], isMine: true, state: 'hidden' }; // Just mark them but don't 'explode' visually? 
+                 // Or reveal them as safe-to-see? 
+                 // Typically you show where mines were.
+                 newGrid[idx] = { ...newGrid[idx], state: 'mine', isMine: true };
+             }
+        });
+        setGrid(newGrid);
+
+        setGameState("won");
+        setBalance(data.balance);
+        toast.success(`Cashed out! Won ${data.payout.toFixed(2)} USDT`);
+
+    } catch (err: any) {
+        console.error(err);
+        toast.error(err.message);
+    }
+  };
 
   // Reset game
   const handleReset = useCallback(() => {
@@ -137,9 +211,10 @@ export function MinesGamePage() {
     setGameState("idle");
     setMultiplier(1.00);
     setRevealedCount(0);
+    setGameId(null);
   }, []);
 
-  const potentialPayout = betAmount * multiplier;
+  const potentialPayout = betAmount * calculateMultiplier(revealedCount, mineCount);
   const canCashOut = gameState === "playing" && revealedCount > 0;
 
   return (

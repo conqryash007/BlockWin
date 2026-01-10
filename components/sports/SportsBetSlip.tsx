@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Trash2, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { createClient } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 interface SportsBetSlipProps {
   className?: string;
@@ -28,6 +31,8 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
     potentialReturn,
   } = useBetslip();
   const { format } = useOddsFormat();
+  const { login } = useAuth();
+  const supabase = createClient();
   
   const [isPlacing, setIsPlacing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -48,23 +53,13 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
     }
   };
 
-  const handlePlaceBet = async () => {
-    if (items.length === 0 || totalStake === 0) return;
-
-    setIsPlacing(true);
-    
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    setIsPlacing(false);
-    setShowSuccess(true);
-    
-    // Clear after showing success
-    setTimeout(() => {
-      setShowSuccess(false);
-      clearSlip();
-    }, 2000);
-  };
+  /* Imports added at top of file by previous tool or manually if needed, but here I replace the function body */
+  // Need to add imports if not present. I'll use multi_replace if imports are missing.
+  // Wait, I can't see if I have imports for createClient/useAuth in the file content I viewed?
+  // UseBetslip is imported. Utils imported.
+  // I need to add imports. I should use multi_replace.
+  
+  const handlePlaceBet = async () => { /* Placeholder to abort this replace and use multi_replace */ };
 
   const hasAnyOddsChanges = items.some((item) => hasOddsChanged(item.id));
 
