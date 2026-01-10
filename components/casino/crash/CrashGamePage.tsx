@@ -227,7 +227,7 @@ export function CrashGamePage() {
               setBetAmount={setBetAmount}
               autoCashOut={autoCashOut}
               setAutoCashOut={setAutoCashOut}
-              gameState={gameState}
+              gameState={gameState as any}
               hasBet={currentInfo.hasBet}
               currentMultiplier={multiplier}
               onPlaceBet={handlePlaceBet}

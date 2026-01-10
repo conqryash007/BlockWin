@@ -72,7 +72,7 @@ const BADGE_STYLES: Record<string, string> = {
 };
 
 // Live countdown hook
-function useCountdown(settlementTimestamp: bigint) {
+function useCountdown(settlementTimestamp: number | bigint) {
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
     hours: number;

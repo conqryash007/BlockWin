@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useRoom, usePlayerStakes, useRoomWinners } from '@/hooks/useBettingRooms';
+import { useRoom, usePlayerStakes } from '@/hooks/useBettingRooms';
 import { LotteryRoomDetail, LotteryRoomDetailSkeleton } from '@/components/lottery/LotteryRoomDetail';
 import { JoinRoomButton } from '@/components/lottery/JoinRoomButton';
 import { Button } from '@/components/ui/button';

@@ -1,4 +1,5 @@
 // Lottery/Betting Rooms Types
+import { formatUnits } from 'viem';
 
 export enum PayoutType {
   WINNER_TAKES_ALL = 'winner_takes_all',
@@ -9,6 +10,11 @@ export enum RoomStatus {
   OPEN = 'open',
   CLOSED = 'closed',
   SETTLED = 'settled',
+}
+
+export interface LotteryFilters {
+  status: RoomStatus | 'all';
+  payoutType: PayoutType | 'all';
 }
 
 export interface BettingRoom {
@@ -53,8 +59,6 @@ export function getRoomStatus(room: BettingRoom): RoomStatus {
   
   return RoomStatus.OPEN;
 }
-
-import { formatUnits } from 'viem';
 
 // Format token amount to USD
 // Input amount is Number (USDT usually)
