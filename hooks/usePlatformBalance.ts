@@ -2,6 +2,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
+
+// Custom event name for balance updates
+const BALANCE_UPDATED_EVENT = 'balance-updated';
+
+/**
+ * Trigger a balance refresh across all components using usePlatformBalance.
+ * Call this after any action that changes the user's balance (game wins/losses, deposits, etc.)
+ */
+export function triggerBalanceRefresh() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(BALANCE_UPDATED_EVENT));
+  }
+}
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -60,6 +73,19 @@ export function usePlatformBalance() {
   // Fetch on mount and when address changes
   useEffect(() => {
     fetchBalance();
+  }, [fetchBalance]);
+
+  // Listen for balance update events (triggered by game components)
+  useEffect(() => {
+    const handleBalanceUpdate = () => {
+      console.log('Balance update event received, refetching...');
+      fetchBalance();
+    };
+
+    window.addEventListener(BALANCE_UPDATED_EVENT, handleBalanceUpdate);
+    return () => {
+      window.removeEventListener(BALANCE_UPDATED_EVENT, handleBalanceUpdate);
+    };
   }, [fetchBalance]);
 
   return { balance, isLoading, refetch: fetchBalance };

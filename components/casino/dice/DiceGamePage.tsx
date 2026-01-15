@@ -11,20 +11,24 @@ import { toast } from "sonner";
 import { useAccount } from "wagmi";
 
 export function DiceGamePage() {
-  const { address } = useAccount(); // Wagmi address
-  const { login } = useAuth(); // Auth hook
+  const { address } = useAccount();
+  const { login } = useAuth();
   const supabase = createClient();
 
   // Game State
   const [balance, setBalance] = useState(0);
   const [betAmount, setBetAmount] = useState(10);
-  const [winChance, setWinChance] = useState(50); // Probability
-  const [rollOver, setRollOver] = useState(false); // Over/Under toggle
+  const [winChance, setWinChance] = useState(50);
+  const [rollOver, setRollOver] = useState(false);
   
   // Roll State
   const [isRolling, setIsRolling] = useState(false);
   const [result, setResult] = useState<number | null>(null);
   const [win, setWin] = useState<boolean | null>(null);
+  
+  // Result display
+  const [lastProfitLoss, setLastProfitLoss] = useState<number | null>(null);
+  const [houseEdge, setHouseEdge] = useState<number>(0);
 
   // Fetch Balance
   useEffect(() => {
@@ -33,7 +37,6 @@ export function DiceGamePage() {
        return;
     }
     
-    // Subscribe to balance changes
     const fetchBalance = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
@@ -43,9 +46,6 @@ export function DiceGamePage() {
     };
 
     fetchBalance();
-
-    // Realtime subscription? For MVP plain fetch or simple interval
-    // Trigger on game end is enough usually.
   }, [address, supabase]);
 
   const handleBet = async () => {
@@ -67,32 +67,44 @@ export function DiceGamePage() {
     setIsRolling(true);
     setResult(null);
     setWin(null);
+    setLastProfitLoss(null);
     
     try {
-        // Calculate Target
-        // If rollOver (Over), we want roll > X. WinChance % = (100-X). => X = 100 - WinChance.
-        // If !rollOver (Under), we want roll < X. WinChance % = X. => X = WinChance.
         const target = rollOver ? (100 - winChance) : winChance;
 
-        const { data, error } = await supabase.functions.invoke('game-dice', {
-             body: { 
-                 betAmount, 
-                 target, 
-                 rollUnder: !rollOver,
-                 clientSeed: "default" // TODO: Add client seed input
-             }
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        
+        const response = await fetch('/api/games/dice', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authSession?.access_token}`,
+          },
+          body: JSON.stringify({ 
+            betAmount, 
+            target, 
+            rollUnder: !rollOver,
+            clientSeed: "default"
+          }),
         });
 
-        if (error) throw new Error(error.message || "Game request failed");
-        if (data.error) throw new Error(data.error);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Game request failed");
 
-        // Success
+        // Update state with results
         setResult(data.roll);
         setWin(data.win);
+        setLastProfitLoss(data.profitLoss);
+        setHouseEdge(data.houseEdge || 0);
+        
+        // Update balance from server response (ensures consistency)
         setBalance(data.balance);
         
+        // Show win/loss toast with exact amount
         if (data.win) {
-             toast.success(`You won ${data.payout.toFixed(2)} USDT!`);
+            toast.success(`🎉 You won! +$${data.profitLoss.toFixed(2)}`);
+        } else {
+            toast.error(`😞 You lost! -$${Math.abs(data.profitLoss).toFixed(2)}`);
         }
         
     } catch (err: any) {
@@ -109,6 +121,33 @@ export function DiceGamePage() {
         {/* Game Container */}
         <div className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] mx-auto w-full">
             
+             {/* House Edge Display */}
+             {houseEdge > 0 && (
+               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-4 py-2 text-center">
+                 <span className="text-yellow-400 text-sm">
+                   House Edge: {(houseEdge * 100).toFixed(1)}%
+                 </span>
+               </div>
+             )}
+            
+             {/* Last Result Display */}
+             {lastProfitLoss !== null && (
+               <div className={`rounded-lg px-4 py-3 text-center ${
+                 lastProfitLoss >= 0 
+                   ? 'bg-green-500/10 border border-green-500/20' 
+                   : 'bg-red-500/10 border border-red-500/20'
+               }`}>
+                 <span className={`text-lg font-bold ${
+                   lastProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
+                 }`}>
+                   {lastProfitLoss >= 0 ? '+' : ''}{lastProfitLoss.toFixed(2)} USDT
+                 </span>
+                 <span className="text-muted-foreground ml-2">
+                   | Balance: {balance.toFixed(2)} USDT
+                 </span>
+               </div>
+             )}
+
              {/* Main Game Area */}
              <div className="flex flex-col lg:flex-row gap-4 h-auto lg:h-[600px]">
                  

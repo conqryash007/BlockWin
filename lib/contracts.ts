@@ -17,7 +17,7 @@ export const CONTRACTS = {
   
   // CasinoDeposit Contract - Deployed on Sepolia
   CasinoDeposit: {
-    address: '0x60D7f33e943c4a129e8b0C6eEA29D352B9f5A75E' as const,
+    address: '0x30917948eBaD677262294EBB266e650610ec6B2D' as const,
     abi: [
       {
         inputs: [],
@@ -56,7 +56,7 @@ export const CONTRACTS = {
       {
         anonymous: false,
         inputs: [
-          { indexed: true, internalType: 'address', name: 'recipient', type: 'address' },
+          { indexed: true, internalType: 'address', name: 'admin', type: 'address' },
           { indexed: true, internalType: 'address', name: 'token', type: 'address' },
           { indexed: false, internalType: 'uint256', name: 'amount', type: 'uint256' },
           { indexed: false, internalType: 'uint256', name: 'timestamp', type: 'uint256' },
@@ -134,6 +134,38 @@ export const CONTRACTS = {
         type: 'event',
       },
       {
+        anonymous: false,
+        inputs: [
+          { indexed: true, internalType: 'address', name: 'user', type: 'address' },
+          { indexed: true, internalType: 'address', name: 'token', type: 'address' },
+          { indexed: false, internalType: 'uint256', name: 'timestamp', type: 'uint256' },
+        ],
+        name: 'WithdrawalAllowanceRevoked',
+        type: 'event',
+      },
+      {
+        anonymous: false,
+        inputs: [
+          { indexed: true, internalType: 'address', name: 'user', type: 'address' },
+          { indexed: true, internalType: 'address', name: 'token', type: 'address' },
+          { indexed: false, internalType: 'uint256', name: 'amount', type: 'uint256' },
+          { indexed: false, internalType: 'uint256', name: 'timestamp', type: 'uint256' },
+        ],
+        name: 'WithdrawalApproved',
+        type: 'event',
+      },
+      {
+        anonymous: false,
+        inputs: [
+          { indexed: true, internalType: 'address', name: 'user', type: 'address' },
+          { indexed: true, internalType: 'address', name: 'token', type: 'address' },
+          { indexed: false, internalType: 'uint256', name: 'amount', type: 'uint256' },
+          { indexed: false, internalType: 'uint256', name: 'timestamp', type: 'uint256' },
+        ],
+        name: 'WithdrawalExecuted',
+        type: 'event',
+      },
+      {
         inputs: [
           { internalType: 'address', name: 'token', type: 'address' },
           { internalType: 'uint256', name: '_minDeposit', type: 'uint256' },
@@ -156,6 +188,28 @@ export const CONTRACTS = {
           { internalType: 'uint256', name: 'amount', type: 'uint256' },
         ],
         name: 'adminWithdraw',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
+      {
+        inputs: [
+          { internalType: 'address', name: 'user', type: 'address' },
+          { internalType: 'address', name: 'token', type: 'address' },
+          { internalType: 'uint256', name: 'amount', type: 'uint256' },
+        ],
+        name: 'approveWithdrawal',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
+      {
+        inputs: [
+          { internalType: 'address', name: 'token', type: 'address' },
+          { internalType: 'address[]', name: 'users', type: 'address[]' },
+          { internalType: 'uint256[]', name: 'amounts', type: 'uint256[]' },
+        ],
+        name: 'batchApproveWithdrawals',
         outputs: [],
         stateMutability: 'nonpayable',
         type: 'function',
@@ -198,6 +252,16 @@ export const CONTRACTS = {
       {
         inputs: [{ internalType: 'address', name: 'token', type: 'address' }],
         name: 'getContractBalance',
+        outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+        stateMutability: 'view',
+        type: 'function',
+      },
+      {
+        inputs: [
+          { internalType: 'address', name: 'user', type: 'address' },
+          { internalType: 'address', name: 'token', type: 'address' },
+        ],
+        name: 'getWithdrawalAllowance',
         outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
         stateMutability: 'view',
         type: 'function',
@@ -261,6 +325,16 @@ export const CONTRACTS = {
         type: 'function',
       },
       {
+        inputs: [
+          { internalType: 'address', name: 'user', type: 'address' },
+          { internalType: 'address', name: 'token', type: 'address' },
+        ],
+        name: 'revokeWithdrawalAllowance',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
+      {
         inputs: [{ internalType: 'address', name: 'newAdminWallet', type: 'address' }],
         name: 'setAdminWallet',
         outputs: [],
@@ -296,6 +370,23 @@ export const CONTRACTS = {
         name: 'transferOwnership',
         outputs: [],
         stateMutability: 'nonpayable',
+        type: 'function',
+      },
+      {
+        inputs: [{ internalType: 'address', name: 'token', type: 'address' }],
+        name: 'withdraw',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
+      {
+        inputs: [
+          { internalType: 'address', name: '', type: 'address' },
+          { internalType: 'address', name: '', type: 'address' },
+        ],
+        name: 'withdrawalAllowance',
+        outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+        stateMutability: 'view',
         type: 'function',
       },
     ] as const,

@@ -51,7 +51,7 @@ export function BetControls({
 
             <div className="space-y-3">
                  <Label className="text-gray-400 text-xs font-bold uppercase tracking-wider">Max Profit</Label>
-                 <Input readOnly value={(betAmount * 10).toFixed(2)} className="font-mono bg-black/40 border-casino-brand/20 text-casino-brand font-bold h-12" />
+                 <Input readOnly value={(betAmount * 4).toFixed(2)} className="font-mono bg-black/40 border-casino-brand/20 text-casino-brand font-bold h-12" />
             </div>
 
             <Button 

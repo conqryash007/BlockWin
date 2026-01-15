@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useAccount } from "wagmi";
+import { triggerBalanceRefresh } from "@/hooks/usePlatformBalance";
 
 export type TileState = "hidden" | "safe" | "mine";
 export type GameState = "idle" | "playing" | "won" | "lost";
@@ -30,13 +31,16 @@ export function MinesGamePage() {
   
   // Game Config
   const [mineCount, setMineCount] = useState(5);
-  
+  const [actualMineCount, setActualMineCount] = useState(5); // Actual mines after house edge applied
+
   // Game State
   const [gameState, setGameState] = useState<GameState>("idle");
   const [grid, setGrid] = useState<Tile[]>(() => createEmptyGrid());
   const [multiplier, setMultiplier] = useState(1.00);
   const [revealedCount, setRevealedCount] = useState(0);
-  const [gameId, setGameId] = useState<string | null>(null);
+  const [gameSessionId, setGameSessionId] = useState<string | null>(null);
+  const [lastProfitLoss, setLastProfitLoss] = useState<number | null>(null);
+  const [houseEdge, setHouseEdge] = useState<number>(0);
 
   // Fetch Balance
   useEffect(() => {
@@ -63,25 +67,31 @@ export function MinesGamePage() {
     }));
   }
 
-  // Calculate multiplier based on mines and revealed tiles (Backend Formula Sync)
+  // Calculate multiplier based on mines and revealed tiles
+  // NOTE: No house edge applied to multiplier calculation
+  // Maximum multiplier capped at 5x
+  const MAX_MULTIPLIER = 5;
+
   const calculateMultiplier = useCallback((revealed: number, mines: number): number => {
     if (revealed === 0) return 1.00;
-    
-    // Formula: 0.97 / Probability
-    // Probability = Prod((25-mines-i)/(25-i))
-    let probability = 1;
+
+    let multiplier = 1;
     for (let i = 0; i < revealed; i++) {
-        probability *= (25 - mines - i) / (25 - i);
+      const safeTiles = 25 - mines;
+      const remaining = safeTiles - i;
+      const total = 25 - i;
+      multiplier *= total / remaining;
     }
-    
-    const mult = 0.97 / probability;
-    return Math.max(1.00, Math.floor(mult * 100) / 100);
+
+    // Cap at maximum multiplier and round to 2 decimals
+    const cappedMultiplier = Math.min(multiplier, MAX_MULTIPLIER);
+    return Math.floor(cappedMultiplier * 100) / 100;
   }, []);
 
   // Get next tile multiplier preview
   const getNextMultiplier = useCallback((): number => {
-    return calculateMultiplier(revealedCount + 1, mineCount);
-  }, [calculateMultiplier, revealedCount, mineCount]);
+    return calculateMultiplier(revealedCount + 1, actualMineCount);
+  }, [calculateMultiplier, revealedCount, actualMineCount]);
 
   // Start a new game
   const handleStartGame = async () => {
@@ -98,16 +108,34 @@ export function MinesGamePage() {
     }
     
     try {
-        const { data, error } = await supabase.functions.invoke('game-mines', {
-             body: { action: 'start', betAmount, mineCount, clientSeed: "default" }
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        
+        const response = await fetch('/api/games/mines', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authSession?.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'start',
+            betAmount,
+            mineCount,
+            clientSeed: "default"
+          }),
         });
 
-        if (error) throw new Error(error.message);
-        if (data.error) throw new Error(data.error);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to start game");
 
         setBalance(data.balance);
-        setGameId(data.gameId);
-        
+        setGameSessionId(data.gameSessionId);
+        setHouseEdge(data.houseEdge || 0);
+        setActualMineCount(data.actualMineCount || mineCount);
+        setLastProfitLoss(null);
+
+        // Trigger navbar balance refresh (bet was deducted)
+        triggerBalanceRefresh();
+
         // Reset Grid
         setGrid(createEmptyGrid());
         setGameState("playing");
@@ -122,45 +150,63 @@ export function MinesGamePage() {
 
   // Handle tile click (Reveal)
   const handleTileClick = async (tileId: number) => {
-    if (gameState !== "playing" || !gameId) return;
+    if (gameState !== "playing" || !gameSessionId) return;
     
     const tile = grid[tileId];
     if (tile.state !== "hidden") return;
     
     try {
-        const { data, error } = await supabase.functions.invoke('game-mines', {
-             body: { action: 'reveal', gameId, tileIndex: tileId }
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        
+        const response = await fetch('/api/games/mines', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authSession?.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'reveal',
+            gameSessionId,
+            tileIndex: tileId
+          }),
         });
 
-        if (error) throw new Error(error.message);
-        if (data.error) throw new Error(data.error);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Reveal failed");
 
         const newGrid = [...grid];
 
-        if (data.win === false) {
-             // Boom
-             data.mines.forEach((idx: number) => {
+        // Use the tile that was actually revealed (may differ from clicked tile due to house edge)
+        const revealedTileIndex = data.revealedTile !== undefined ? data.revealedTile : tileId;
+
+        if (data.hitMine) {
+             // Boom - show all mines
+             data.minePositions.forEach((idx: number) => {
                  newGrid[idx] = { ...newGrid[idx], state: "mine", isMine: true };
              });
-             // Highlight hit
-             if (data.hit !== undefined) newGrid[data.hit] = { ...newGrid[data.hit], state: "mine", isMine: true }; // redundant check
-             
+
              setGrid(newGrid);
              setGameState("lost");
-             toast.error("BOOM! You hit a mine.");
+             setBalance(data.balance);
+             setLastProfitLoss(-betAmount);
+
+             // Trigger navbar balance refresh
+             triggerBalanceRefresh();
+
+             const message = revealedTileIndex !== tileId
+               ? `💥 BOOM! House edge forced a mine! -$${betAmount.toFixed(2)}`
+               : `💥 BOOM! You hit a mine. -$${betAmount.toFixed(2)}`;
+             toast.error(message);
         } else {
-             // Safe
-             newGrid[tileId] = { ...tile, state: "safe" };
+             // Safe - reveal the tile returned by backend
+             newGrid[revealedTileIndex] = { ...newGrid[revealedTileIndex], state: "safe" };
              setGrid(newGrid);
-             
+
              setRevealedCount(prev => prev + 1);
-             setMultiplier(data.multiplier);
-             
-             if (data.active === false && data.win === true) {
-                 // Auto win (all safe revealed)
-                 setGameState("won");
-                 setBalance(data.balance);
-                 toast.success(`Cleared the board! Won ${data.payout.toFixed(2)} USDT`);
+             setMultiplier(data.currentMultiplier);
+
+             if (revealedTileIndex !== tileId) {
+               toast.info(`House edge revealed a different tile`);
              }
         }
         
@@ -172,32 +218,35 @@ export function MinesGamePage() {
 
   // Cash out
   const handleCashOut = async () => {
-    if (gameState !== "playing" || !gameId) return;
+    if (gameState !== "playing" || !gameSessionId) return;
     
     try {
-         const { data, error } = await supabase.functions.invoke('game-mines', {
-             body: { action: 'cashout', gameId }
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        
+        const response = await fetch('/api/games/mines', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authSession?.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'cashout',
+            gameSessionId
+          }),
         });
 
-        if (error) throw new Error(error.message);
-        if (data.error) throw new Error(data.error);
-        
-        // Reveal Mines
-        const newGrid = [...grid];
-        data.mines.forEach((idx: number) => {
-             // Only show unrevealed mines? Usually shows all mines on end
-             if (newGrid[idx].state === 'hidden') {
-                 newGrid[idx] = { ...newGrid[idx], isMine: true, state: 'hidden' }; // Just mark them but don't 'explode' visually? 
-                 // Or reveal them as safe-to-see? 
-                 // Typically you show where mines were.
-                 newGrid[idx] = { ...newGrid[idx], state: 'mine', isMine: true };
-             }
-        });
-        setGrid(newGrid);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Cashout failed");
 
         setGameState("won");
         setBalance(data.balance);
-        toast.success(`Cashed out! Won ${data.payout.toFixed(2)} USDT`);
+        const profit = data.payout - betAmount;
+        setLastProfitLoss(profit);
+
+        // Trigger navbar balance refresh
+        triggerBalanceRefresh();
+
+        toast.success(`🎉 Cashed out! +$${profit.toFixed(2)}`);
 
     } catch (err: any) {
         console.error(err);
@@ -211,16 +260,44 @@ export function MinesGamePage() {
     setGameState("idle");
     setMultiplier(1.00);
     setRevealedCount(0);
-    setGameId(null);
+    setGameSessionId(null);
+    setLastProfitLoss(null);
   }, []);
 
-  const potentialPayout = betAmount * calculateMultiplier(revealedCount, mineCount);
+  const potentialPayout = betAmount * calculateMultiplier(revealedCount, actualMineCount);
   const canCashOut = gameState === "playing" && revealedCount > 0;
 
   return (
     <div className="flex flex-col min-h-full bg-background">
       {/* Game Container */}
       <div className="flex-1 p-4 lg:p-6 space-y-6 max-w-[1600px] mx-auto w-full">
+        
+        {/* House Edge Display */}
+        {houseEdge > 0 && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-4 py-2 text-center">
+            <span className="text-yellow-400 text-sm">
+              House Edge: {(houseEdge * 100).toFixed(1)}%
+            </span>
+          </div>
+        )}
+        
+        {/* Last Result Display */}
+        {lastProfitLoss !== null && (gameState === "won" || gameState === "lost") && (
+          <div className={`rounded-lg px-4 py-3 text-center ${
+            lastProfitLoss >= 0 
+              ? 'bg-green-500/10 border border-green-500/20' 
+              : 'bg-red-500/10 border border-red-500/20'
+          }`}>
+            <span className={`text-lg font-bold ${
+              lastProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {lastProfitLoss >= 0 ? '+' : ''}{lastProfitLoss.toFixed(2)} USDT
+            </span>
+            <span className="text-muted-foreground ml-2">
+              | Balance: {balance.toFixed(2)} USDT
+            </span>
+          </div>
+        )}
         
         {/* Main Game Area */}
         <div className="flex flex-col lg:flex-row gap-4 h-auto lg:min-h-[600px]">

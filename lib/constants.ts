@@ -3,6 +3,7 @@ export const APP_DESCRIPTION = "Premium Crypto Betting Platform";
 
 export const NAVIGATION_ITEMS = [
   { name: "Dashboard", href: "/", icon: "LayoutDashboard" },
+  { name: "Wallet", href: "/wallet", icon: "Wallet" },
   { name: "Casino", href: "/casino", icon: "Gamepad2" },
   { name: "Sports", href: "/sports", icon: "Trophy" },
   { name: "Lottery", href: "/lottery", icon: "Ticket" },

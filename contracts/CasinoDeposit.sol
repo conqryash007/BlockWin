@@ -26,6 +26,9 @@ contract CasinoDeposit is Ownable, ReentrancyGuard {
     // Track total deposits per token
     mapping(address => uint256) public totalDeposits;
     
+    // Withdrawal allowance per user per token: user => token => approved amount
+    mapping(address => mapping(address => uint256)) public withdrawalAllowance;
+    
     // Events for webhook tracking
     event Deposit(
         address indexed user,
@@ -47,6 +50,27 @@ contract CasinoDeposit is Ownable, ReentrancyGuard {
     event TokenRemoved(address indexed token);
     event MinDepositUpdated(address indexed token, uint256 oldAmount, uint256 newAmount);
     event AdminWalletUpdated(address oldWallet, address newWallet);
+    
+    // Withdrawal approval events
+    event WithdrawalApproved(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        uint256 timestamp
+    );
+    
+    event WithdrawalExecuted(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        uint256 timestamp
+    );
+    
+    event WithdrawalAllowanceRevoked(
+        address indexed user,
+        address indexed token,
+        uint256 timestamp
+    );
     
     constructor() Ownable(msg.sender) {
         adminWallet = msg.sender; // Deployer is both owner and admin
@@ -272,5 +296,100 @@ contract CasinoDeposit is Ownable, ReentrancyGuard {
                 tokenContract.safeTransfer(adminWallet, balance);
             }
         }
+    }
+    
+    // ============ WITHDRAWAL APPROVAL MECHANISM ============
+    
+    /**
+     * @notice Approve a withdrawal amount for a user
+     * @param user User address to approve
+     * @param token Token contract address
+     * @param amount Amount to approve for withdrawal
+     */
+    function approveWithdrawal(
+        address user,
+        address token,
+        uint256 amount
+    ) external onlyOwner {
+        require(user != address(0), "Invalid user address");
+        require(amount > 0, "Amount must be > 0");
+        
+        withdrawalAllowance[user][token] = amount;
+        
+        emit WithdrawalApproved(user, token, amount, block.timestamp);
+    }
+    
+    /**
+     * @notice Batch approve withdrawals for multiple users
+     * @param token Token contract address
+     * @param users Array of user addresses
+     * @param amounts Array of amounts to approve
+     */
+    function batchApproveWithdrawals(
+        address token,
+        address[] calldata users,
+        uint256[] calldata amounts
+    ) external onlyOwner {
+        require(users.length == amounts.length, "Array length mismatch");
+        require(users.length <= 50, "Max 50 approvals per batch");
+        
+        for (uint256 i = 0; i < users.length; i++) {
+            require(users[i] != address(0), "Invalid user address");
+            require(amounts[i] > 0, "Amount must be > 0");
+            
+            withdrawalAllowance[users[i]][token] = amounts[i];
+            
+            emit WithdrawalApproved(users[i], token, amounts[i], block.timestamp);
+        }
+    }
+    
+    /**
+     * @notice Revoke withdrawal allowance for a user
+     * @param user User address to revoke
+     * @param token Token contract address
+     */
+    function revokeWithdrawalAllowance(
+        address user,
+        address token
+    ) external onlyOwner {
+        require(user != address(0), "Invalid user address");
+        
+        withdrawalAllowance[user][token] = 0;
+        
+        emit WithdrawalAllowanceRevoked(user, token, block.timestamp);
+    }
+    
+    /**
+     * @notice User-initiated withdrawal of approved amount
+     * @dev User can only withdraw if they have a non-zero allowance
+     * @param token Token contract address
+     */
+    function withdraw(address token) external nonReentrant {
+        uint256 allowance = withdrawalAllowance[msg.sender][token];
+        require(allowance > 0, "No withdrawal allowance");
+        
+        IERC20 tokenContract = IERC20(token);
+        require(tokenContract.balanceOf(address(this)) >= allowance, "Insufficient contract balance");
+        
+        // Reset allowance BEFORE transfer (Checks-Effects-Interactions pattern)
+        withdrawalAllowance[msg.sender][token] = 0;
+        
+        // Transfer tokens from contract to user
+        tokenContract.safeTransfer(msg.sender, allowance);
+        
+        emit WithdrawalExecuted(msg.sender, token, allowance, block.timestamp);
+    }
+    
+    /**
+     * @notice Get withdrawal allowance for a user
+     * @param user User address
+     * @param token Token contract address
+     * @return Approved withdrawal amount
+     */
+    function getWithdrawalAllowance(
+        address user,
+        address token
+    ) external view returns (uint256) {
+        return withdrawalAllowance[user][token];
     }
 }

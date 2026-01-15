@@ -11,66 +11,73 @@ import { usePlinkoSound } from "@/hooks/usePlinkoSound";
 interface PlinkoDisplayProps {
   result: number | null;
   onDropComplete: () => void;
-  gameId: number; 
-  path: number[] | null; 
+  gameId: number;
+  path: number[] | null;
+  multiplier: number;
 }
 
-// Multipliers for 17 sinks (from code100x/plinkoo)
+// Multipliers for 17 sinks
+// Max 5x at edges, middle 5 buckets: 1x, 0.8x, 0.5x, 0.8x, 1x
 const MULTIPLIERS: {[ key: number ]: number} = {
-    1: 16,
-    2: 9,
+    1: 5,
+    2: 3,
     3: 2,
-    4: 1.4,
-    5: 1.4,
-    6: 1.2,
-    7: 1.1,
-    8: 1,
+    4: 1.5,
+    5: 1.2,
+    6: 1,
+    7: 1,
+    8: 0.8,
     9: 0.5,
-    10: 1,
-    11: 1.1,
-    12: 1.2,
-    13: 1.4,
-    14: 1.4,
+    10: 0.8,
+    11: 1,
+    12: 1,
+    13: 1.2,
+    14: 1.5,
     15: 2,
-    16: 9,
-    17: 16
+    16: 3,
+    17: 5
 }
 
-export function PlinkoDisplay({ result, onDropComplete, gameId, path }: PlinkoDisplayProps) {
+export function PlinkoDisplay({ result, onDropComplete, gameId, path, multiplier }: PlinkoDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ballManager, setBallManager] = useState<BallManager>();
   const [history, setHistory] = useState<{multiplier: number, id: number}[]>([]);
   const [activeBucket, setActiveBucket] = useState<number | null>(null);
   const lastDroppedGameIdRef = useRef<number>(-1);
   const onDropCompleteRef = useRef(onDropComplete);
-  
+  const multiplierRef = useRef(multiplier);
+
   // Sound effects
   const { playPegHit, playWin } = usePlinkoSound();
 
-  // Keep onDropComplete ref updated
+  // Keep refs updated
   useEffect(() => {
     onDropCompleteRef.current = onDropComplete;
   }, [onDropComplete]);
 
-  // Stable callback for BallManager
+  useEffect(() => {
+    multiplierRef.current = multiplier;
+  }, [multiplier]);
+
+  // Stable callback for BallManager (no multiplier dependency to prevent recreation)
   const handleBallFinish = useCallback((index: number) => {
-    // Ball finished - get multiplier
-    const multiplier = MULTIPLIERS[index + 1] || 1;
-    
     // Highlight the winning bucket
     setActiveBucket(index);
-    
-    // Update History
-    setHistory(prev => [{ multiplier, id: Date.now() }, ...prev.slice(0, 5)]);
-    
+
+    // Use the backend multiplier from ref (not recalculated from index)
+    const backendMultiplier = multiplierRef.current || 1;
+
+    // Update History with backend multiplier
+    setHistory(prev => [{ multiplier: backendMultiplier, id: Date.now() }, ...prev.slice(0, 5)]);
+
     // Clear bucket highlight after 3 seconds
     setTimeout(() => {
       setActiveBucket(null);
     }, 3000);
-    
+
     // Play win sound
-    playWin(multiplier);
-    
+    playWin(backendMultiplier);
+
     onDropCompleteRef.current();
   }, [playWin]);
 
@@ -95,12 +102,14 @@ export function PlinkoDisplay({ result, onDropComplete, gameId, path }: PlinkoDi
     if (result !== null && ballManager && gameId > 0 && gameId !== lastDroppedGameIdRef.current) {
       // Mark this gameId as processed to prevent double drops
       lastDroppedGameIdRef.current = gameId;
-      
+
       // Add ball with random starting position for variety
       // Random offset between -15 and +15 pixels from center
       const randomOffset = (Math.random() - 0.5) * 30;
       const startX = pad(WIDTH / 2 + randomOffset);
-      ballManager.addBall(startX);
+
+      // Pass the backend result as target bucket to ensure correct landing
+      ballManager.addBall(startX, result);
     }
   }, [gameId, result, ballManager]);
 

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { CrashGraph } from "./CrashGraph";
 
 interface CrashDisplayProps {
-  gameState: "waiting" | "running" | "crashed";
+  gameState: "waiting" | "starting" | "running" | "crashed";
   multiplier: number;
   countdown: number;
   history: { multiplier: number; id: number }[];
@@ -12,6 +12,8 @@ interface CrashDisplayProps {
   hasBet: boolean;
   cashedOut: boolean;
   cashOutMultiplier?: number;
+  betAmount?: number;
+  winAmount?: number;
 }
 
 export function CrashDisplay({
@@ -23,6 +25,8 @@ export function CrashDisplay({
   hasBet,
   cashedOut,
   cashOutMultiplier,
+  betAmount,
+  winAmount,
 }: CrashDisplayProps) {
   const getMultiplierColor = () => {
     if (gameState === "crashed") return "text-red-500";
@@ -34,12 +38,14 @@ export function CrashDisplay({
 
   const getStatusText = () => {
     if (gameState === "waiting") return "WAITING";
+    if (gameState === "starting") return "STARTING";
     if (gameState === "crashed") return "CRASHED";
     return "RUNNING";
   };
 
   const getStatusColor = () => {
     if (gameState === "waiting") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    if (gameState === "starting") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
     if (gameState === "crashed") return "bg-red-500/20 text-red-400 border-red-500/30";
     return "bg-casino-brand/20 text-casino-brand border-casino-brand/30";
   };
@@ -98,6 +104,14 @@ export function CrashDisplay({
                 {countdown.toFixed(1)}s
               </span>
               <span className="text-lg text-gray-400 mt-2 uppercase tracking-wider">Next Round</span>
+            </div>
+          ) : gameState === "starting" ? (
+            <div className="flex flex-col items-center animate-pulse">
+              <div className="w-16 h-16 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <span className="text-2xl md:text-3xl font-bold text-blue-400">
+                Please Wait
+              </span>
+              <span className="text-lg text-gray-400 mt-2">Starting game...</span>
             </div>
           ) : (
             <>

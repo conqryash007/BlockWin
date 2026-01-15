@@ -1,8 +1,8 @@
 "use client";
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Lock } from 'lucide-react';
+import { Lock, Loader2 } from 'lucide-react';
 import { useAccount } from 'wagmi';
 
 interface AuthGuardProps {
@@ -12,6 +12,22 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
     const { isAuthenticated, login, loading } = useAuth();
     const { isConnected } = useAccount();
+    
+    // Prevent hydration mismatch by only rendering after mount
+    const [mounted, setMounted] = useState(false);
+    
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    // Show loading state until mounted to prevent hydration mismatch
+    if (!mounted) {
+        return (
+            <div className="relative w-full h-full min-h-[400px] flex items-center justify-center bg-black/40 rounded-xl border border-white/5">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
 
     if (isAuthenticated) {
         return <>{children}</>;
@@ -34,9 +50,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
                 </div>
 
                 {!isConnected ? (
-                     // Since connect is usually in header, we can just say "Connect Wallet" 
-                     // Or provide a button if we import WalletModal trigger logic.
-                     // For simplicity, request them to use Header or specialized button if we had global modal state.
                      <div className="px-4 py-2 bg-yellow-500/10 text-yellow-500 rounded-lg text-sm font-medium border border-yellow-500/20">
                         Connect Wallet in Header to Continue
                      </div>
@@ -50,11 +63,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
                     </Button>
                 )}
              </div>
-             
-             {/* Blur the children slightly to hint at content behind? Or just hide. 
-                 If we want to show the game UI but blurred/unclickable, we could render children with pointer-events-none and filter-blur.
-                 But that might leak data or be heavy. Let's stick to full replacement or overlay.
-             */}
         </div>
     );
 }

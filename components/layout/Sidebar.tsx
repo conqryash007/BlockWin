@@ -18,11 +18,13 @@ import {
   Headphones,
   Menu,
   LayoutDashboard,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
+  Wallet,
   Gamepad2,
   Trophy,
   Ticket,

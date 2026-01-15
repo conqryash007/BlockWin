@@ -63,7 +63,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
   const { address } = useAccount();
-  const { isAuthenticated, login, loading } = useAuth();
+  const { isAuthenticated, login, loading, accountStatus } = useAuth();
   
   // Deposit state
   const [amount, setAmount] = useState('');
@@ -171,19 +171,6 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
         
         {/* Header Section */}
         <div className="p-6 pb-2 relative">
-            {isAuthenticated && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="absolute right-4 top-4 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                onClick={() => {
-                  disconnect();
-                  onOpenChange(false);
-                }}
-              >
-                <LogOut className="w-5 h-5" />
-              </Button>
-            )}
             <DialogHeader>
             <DialogTitle className="text-xl font-bold text-center flex flex-col items-center gap-4">
                 <div className={cn(
@@ -257,22 +244,61 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
              </div>
         ) : !isAuthenticated ? (
             <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
-                <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center animate-pulse">
-                    <Wallet className="w-8 h-8 text-yellow-500" />
-                </div>
-                <div className="text-center space-y-2">
-                    <h3 className="text-lg font-bold text-white">Action Required</h3>
-                    <p className="text-sm text-muted-foreground max-w-[260px]">
-                        Please sign the message in your wallet to verify ownership and access your account.
-                    </p>
-                </div>
-                <Button 
-                    onClick={() => login()} 
-                    disabled={loading}
-                    className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
-                >
-                    {loading ? "Waiting for Signature..." : "Sign Message"}
-                </Button>
+                {accountStatus === 'checking' ? (
+                    <>
+                        <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center animate-pulse">
+                            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                        </div>
+                        <div className="text-center space-y-2">
+                            <h3 className="text-lg font-bold text-white">Checking Account...</h3>
+                            <p className="text-sm text-muted-foreground max-w-[260px]">
+                                Verifying if your wallet is registered.
+                            </p>
+                        </div>
+                    </>
+                ) : accountStatus === 'existing' ? (
+                    <>
+                        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center animate-pulse">
+                            <Wallet className="w-8 h-8 text-emerald-500" />
+                        </div>
+                        <div className="text-center space-y-2">
+                            <h3 className="text-lg font-bold text-white">Welcome Back!</h3>
+                            <p className="text-sm text-muted-foreground max-w-[260px]">
+                                Sign the message in your wallet to access your account.
+                            </p>
+                        </div>
+                        <Button 
+                            onClick={() => login()} 
+                            disabled={loading}
+                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                        >
+                            {loading ? "Waiting for Signature..." : "Sign to Login"}
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center animate-pulse">
+                            <Wallet className="w-8 h-8 text-yellow-500" />
+                        </div>
+                        <div className="text-center space-y-2">
+                            <h3 className="text-lg font-bold text-white">
+                                {accountStatus === 'new' ? 'Create Account' : 'Action Required'}
+                            </h3>
+                            <p className="text-sm text-muted-foreground max-w-[260px]">
+                                {accountStatus === 'new' 
+                                    ? 'This wallet is not registered. Sign to create your account and start playing!'
+                                    : 'Please sign the message in your wallet to verify ownership and access your account.'}
+                            </p>
+                        </div>
+                        <Button 
+                            onClick={() => login()} 
+                            disabled={loading}
+                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                        >
+                            {loading ? "Waiting for Signature..." : accountStatus === 'new' ? "Sign to Register" : "Sign Message"}
+                        </Button>
+                    </>
+                )}
             </div>
         ) : (
             <div className="p-6 pt-0">

@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 
 interface CrashGraphProps {
   multiplier: number;
-  gameState: "waiting" | "running" | "crashed";
+  gameState: "waiting" | "starting" | "running" | "crashed";
   crashPoint?: number;
 }
 
