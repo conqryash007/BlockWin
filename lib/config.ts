@@ -1,4 +1,4 @@
-import { http, createConfig } from 'wagmi'
+import { http, createConfig, createStorage, cookieStorage } from 'wagmi'
 import { sepolia } from 'wagmi/chains'
 import { walletConnect, injected } from 'wagmi/connectors'
 
@@ -11,12 +11,18 @@ export const projectId = '8409c5ec71253f99c76c781324b10720'
 const metadata = {
   name: 'BlockWin Casino',
   description: 'BlockWin - Web3 Casino Platform',
-  url: typeof window !== 'undefined' ? window.location.origin : 'https://blockwin.netlify.app',
+  url: 'https://blockwin.netlify.app',
   icons: ['https://blockwin.netlify.app/logo.png'],
 }
 
 export const config = createConfig({
   chains: [sepolia],
+  // Enable SSR support for Next.js
+  ssr: true,
+  // Use cookie storage for SSR compatibility
+  storage: createStorage({
+    storage: cookieStorage,
+  }),
   // Enable multiInjectedProviderDiscovery for better mobile wallet detection
   multiInjectedProviderDiscovery: true,
   transports: {
@@ -31,7 +37,8 @@ export const config = createConfig({
       projectId, 
       showQrModal: true,
       metadata,
-      // Ensure we only request the chains we support
+      // Explicitly set the required chains for WalletConnect v2
+      // This ensures mobile wallets know which chains to connect with
       qrModalOptions: {
         themeMode: 'dark',
       },

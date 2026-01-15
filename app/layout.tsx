@@ -8,6 +8,9 @@ import { BetslipProvider } from "@/hooks/useBetslip";
 import { BetslipDrawer } from "@/components/betslip/BetslipDrawer";
 import { Providers } from "./providers";
 import { AgeDisclaimer } from "@/components/AgeDisclaimer";
+import { headers } from 'next/headers';
+import { cookieToInitialState } from 'wagmi';
+import { config } from '@/lib/config';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -24,15 +27,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Get wagmi state from cookies for proper SSR hydration
+  const headersList = await headers();
+  const cookie = headersList.get('cookie');
+  const initialState = cookieToInitialState(config, cookie);
+
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={cn(inter.variable, "min-h-screen bg-background font-sans antialiased overflow-hidden")}>
-         <Providers>
+         <Providers initialState={initialState}>
           <BetslipProvider>
             <div className="flex h-screen overflow-hidden bg-background">
                 <Sidebar />
@@ -53,3 +61,4 @@ export default function RootLayout({
     </html>
   );
 }
+

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useAccount, useSignMessage } from 'wagmi';
+import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi';
+import { sepolia } from 'wagmi/chains';
 import { createClient } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -8,6 +9,8 @@ export type AccountStatus = 'unknown' | 'checking' | 'existing' | 'new';
 export function useAuth() {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
   const [loading, setLoading] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
@@ -148,25 +151,46 @@ export function useAuth() {
         }
       }
 
-      // 2. Generate Nonce
+      // 2. Ensure we're on the correct chain (Sepolia)
+      if (chainId !== sepolia.id) {
+        console.log('Current chain:', chainId, 'Switching to Sepolia...');
+        try {
+          toast.info('Switching to Sepolia network...');
+          await switchChainAsync({ chainId: sepolia.id });
+          // Give mobile wallets a moment to update
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (switchError: any) {
+          console.error('Chain switch error:', switchError);
+          toast.error('Please switch to Sepolia network in your wallet and try again');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 3. Generate Nonce
       const nonce = Math.floor(Math.random() * 1000000).toString();
       const message = `Sign this message to login to BlockWin Casino. Nonce: ${nonce}`;
       
-      // 3. Sign Message
+      // 4. Sign Message
       let signature: string;
       try {
         signature = await signMessageAsync({ message });
       } catch (signError: any) {
+        console.error('Sign error:', signError);
         // Handle chain switching errors for mobile wallets
         if (signError?.message?.includes('Chain not configured') || 
-            signError?.message?.includes('chain') ||
-            signError?.shortMessage?.includes('Chain not configured')) {
+            signError?.message?.toLowerCase()?.includes('chain') ||
+            signError?.shortMessage?.includes('Chain not configured') ||
+            signError?.message?.includes('unsupported')) {
           toast.error('Please switch to Sepolia network in your wallet and try again');
           setLoading(false);
           return;
         }
         // Handle user rejection
-        if (signError?.code === 4001 || signError?.message?.includes('rejected')) {
+        if (signError?.code === 4001 || 
+            signError?.message?.includes('rejected') ||
+            signError?.message?.includes('User denied') ||
+            signError?.message?.includes('cancelled')) {
           toast.error('Signature request was rejected');
           setLoading(false);
           return;
@@ -220,7 +244,7 @@ export function useAuth() {
     } finally {
       setLoading(false);
     }
-  }, [address, signMessageAsync, supabase]);
+  }, [address, signMessageAsync, supabase, chainId, switchChainAsync]);
 
   const logout = async () => {
      await supabase.auth.signOut();
