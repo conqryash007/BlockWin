@@ -6,15 +6,14 @@ import { EventFilters } from "@/components/sports/EventFilters";
 import { LeagueSection } from "@/components/sports/LeagueSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { useEvents, useMockMode, useLiveAndUpcomingEvents } from "@/hooks/useSportsData";
+import { Loader2, RefreshCw, AlertCircle } from "lucide-react";
+import { useAllSportsEvents } from "@/hooks/useSportsData";
 import { EventFilters as EventFiltersType, SportEvent } from "@/types/sports";
-import { MOCK_EVENTS, SPORT_CATEGORIES } from "@/lib/mockSportsData";
+import { SPORT_CATEGORIES } from "@/lib/mockSportsData";
 import { isEventLive } from "@/lib/oddsUtils";
 import { LivePlayerActivityFeed } from "@/components/dashboard/LivePlayerActivityFeed";
 
 export default function SportsPage() {
-  const { useMock } = useMockMode();
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
   const [filters, setFilters] = useState<EventFiltersType>({
     status: "all",
@@ -22,8 +21,8 @@ export default function SportsPage() {
     oddsFormat: "decimal",
   });
 
-  // Get all events (using mock for now)
-  const allEvents = MOCK_EVENTS;
+  // Fetch live events from The Odds API
+  const { events: allEvents, isLoading, error, refetch } = useAllSportsEvents();
 
   // Filter events based on selected sport and filters
   const filteredEvents = useMemo(() => {
@@ -73,6 +72,16 @@ export default function SportsPage() {
             Bet on your favorite sports with the best odds
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refetch}
+          disabled={isLoading}
+          className="gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh Odds
+        </Button>
       </div>
 
       {/* Main Events Strip */}
@@ -115,7 +124,20 @@ export default function SportsPage() {
       />
 
       {/* Events by League */}
-      {leagues.length === 0 ? (
+      {isLoading && allEvents.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-casino-brand" />
+          <p className="text-muted-foreground">Loading live events...</p>
+        </div>
+      ) : error && allEvents.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-4">
+          <AlertCircle className="w-8 h-8 text-red-500" />
+          <p className="text-red-400">{error}</p>
+          <Button variant="outline" size="sm" onClick={refetch}>
+            Try Again
+          </Button>
+        </div>
+      ) : leagues.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground">No events found for the selected filters.</p>
         </div>

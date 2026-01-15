@@ -15,27 +15,52 @@ export interface LotteryRoom {
   winners?: any[];
 }
 
+export interface CreateRoomParams {
+  name: string;
+  minStake: number;
+  maxStake: number;
+  settlementTime: string; // ISO date string
+  payoutType: 'winner_takes_all' | 'split';
+}
+
+export interface SettleRoomParams {
+  roomId: string;
+  randomSelect?: boolean;
+  winners?: { address: string; prize: number; rank: number }[];
+}
+
 export function useLottery() {
     const supabase = createClient();
     const { login } = useAuth();
     const [loading, setLoading] = useState(false);
 
-    const createRoom = useCallback(async (params: { name: string, minStake: number, maxStake: number, duration: number }) => {
+    const getAuthHeaders = useCallback(async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return null;
+        return {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+        };
+    }, [supabase]);
+
+    const createRoom = useCallback(async (params: CreateRoomParams) => {
         setLoading(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
+            const headers = await getAuthHeaders();
+            if (!headers) {
                 toast.error("Please login first");
                 await login();
                 return null;
             }
 
-            const { data, error } = await supabase.functions.invoke('lottery-manager', {
-                body: { action: 'create', ...params }
+            const response = await fetch('/api/lottery', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(params)
             });
 
-            if (error) throw error;
-            if (data.error) throw new Error(data.error);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to create room');
             
             toast.success("Room created successfully!");
             return data;
@@ -46,24 +71,26 @@ export function useLottery() {
         } finally {
             setLoading(false);
         }
-    }, [supabase, login]);
+    }, [getAuthHeaders, login]);
 
     const joinRoom = useCallback(async (roomId: string, stakeAmount: number) => {
         setLoading(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
+            const headers = await getAuthHeaders();
+            if (!headers) {
                 toast.error("Please login first");
                 await login();
                 return null;
             }
 
-            const { data, error } = await supabase.functions.invoke('lottery-manager', {
-                body: { action: 'join', roomId, stakeAmount }
+            const response = await fetch('/api/lottery/join', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ roomId, stakeAmount })
             });
 
-            if (error) throw error;
-            if (data.error) throw new Error(data.error);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to join room');
 
             toast.success("Joined room successfully!");
             return data;
@@ -74,19 +101,32 @@ export function useLottery() {
         } finally {
             setLoading(false);
         }
-    }, [supabase, login]);
+    }, [getAuthHeaders, login]);
 
-    const settleRoom = useCallback(async (roomId: string) => {
+    const settleRoom = useCallback(async (params: SettleRoomParams) => {
         setLoading(true);
         try {
-             const { data, error } = await supabase.functions.invoke('lottery-manager', {
-                body: { action: 'settle', roomId }
+            const headers = await getAuthHeaders();
+            if (!headers) {
+                toast.error("Please login first");
+                return null;
+            }
+
+            const response = await fetch('/api/lottery', {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ 
+                    roomId: params.roomId, 
+                    action: 'settle',
+                    randomSelect: params.randomSelect,
+                    winners: params.winners
+                })
             });
 
-            if (error) throw error;
-            if (data.error) throw new Error(data.error);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to settle room');
 
-            toast.success(data.winner ? `Room settled! Winner: ${data.winner}` : "Room closed (no entries)");
+            toast.success(data.winners?.length ? `Room settled! ${data.winners.length} winner(s)` : "Room closed (no entries)");
             return data;
         } catch (err: any) {
             console.error(err);
@@ -95,12 +135,42 @@ export function useLottery() {
         } finally {
             setLoading(false);
         }
-    }, [supabase]);
+    }, [getAuthHeaders]);
+
+    const closeRoom = useCallback(async (roomId: string) => {
+        setLoading(true);
+        try {
+            const headers = await getAuthHeaders();
+            if (!headers) {
+                toast.error("Please login first");
+                return null;
+            }
+
+            const response = await fetch('/api/lottery', {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ roomId, action: 'close' })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to close room');
+
+            toast.success("Room closed successfully!");
+            return data;
+        } catch (err: any) {
+            console.error(err);
+            toast.error(err.message || "Failed to close room");
+            return null;
+        } finally {
+            setLoading(false);
+        }
+    }, [getAuthHeaders]);
 
     return {
         createRoom,
         joinRoom,
         settleRoom,
+        closeRoom,
         loading
     };
 }

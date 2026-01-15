@@ -32,6 +32,37 @@ export function useAllRooms() {
 
       if (entriesError) throw entriesError;
 
+      // Collect all user IDs we need to resolve (from entries and winners)
+      const allUserIds = new Set<string>();
+      entriesData?.forEach(e => allUserIds.add(e.user_id));
+      
+      // Also collect winner user IDs that look like UUIDs (not wallet addresses)
+      roomsData?.forEach(room => {
+        if (room.winners && Array.isArray(room.winners)) {
+          room.winners.forEach((w: any) => {
+            // UUID format check (36 chars with dashes)
+            if (w.address && w.address.length === 36 && w.address.includes('-')) {
+              allUserIds.add(w.address);
+            }
+          });
+        }
+      });
+
+      // Fetch wallet addresses for all users
+      let userWallets: Record<string, string> = {};
+      if (allUserIds.size > 0) {
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, wallet_address')
+          .in('id', Array.from(allUserIds));
+        
+        users?.forEach(u => {
+          if (u.wallet_address) {
+            userWallets[u.id] = u.wallet_address;
+          }
+        });
+      }
+
       // Group entries by room
       const entriesByRoom: Record<string, { user_id: string; stake_amount: number }[]> = {};
       entriesData?.forEach((entry) => {
@@ -66,11 +97,16 @@ export function useAllRooms() {
           created_by: room.created_by
         };
 
-        // If settled, parse winners from JSONB if available
+        // If settled, parse winners from JSONB and resolve wallet addresses
         let winners: WinnerInfo[] | undefined = undefined;
-        if (room.winners) {
-          // Assuming room.winners is stored exactly as WinnerInfo[] or compatible JSON
-          winners = room.winners as WinnerInfo[];
+        if (room.winners && Array.isArray(room.winners)) {
+          winners = room.winners.map((w: any) => ({
+            ...w,
+            // Resolve user ID to wallet address if it looks like a UUID
+            address: (w.address && w.address.length === 36 && w.address.includes('-'))
+              ? (userWallets[w.address] || w.address)
+              : w.address
+          }));
         }
 
         return {
@@ -206,9 +242,7 @@ export function useRoom(roomId: string) {
   };
 }
 
-// Get player stakes for a room
-// This is now redundant as useRoom returns players and total pool, 
-// but we might want individual stakes map.
+// Get player stakes for a room with wallet addresses
 export function usePlayerStakes(roomId: string) {
   const [stakes, setStakes] = useState<PlayerStake[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -218,17 +252,36 @@ export function usePlayerStakes(roomId: string) {
     async function fetchStakes() {
       if (!roomId) return;
       try {
-        const { data, error } = await supabase
+        // Fetch entries for this room
+        const { data: entries, error: entriesError } = await supabase
           .from('lottery_entries')
           .select('user_id, stake_amount')
           .eq('room_id', roomId);
 
-        if (error) throw error;
+        if (entriesError) throw entriesError;
 
-        const formattedStakes: PlayerStake[] = (data || []).map(e => ({
-          player: e.user_id,
-          stake: Number(e.stake_amount)
-        }));
+        if (!entries || entries.length === 0) {
+          setStakes([]);
+          return;
+        }
+
+        // Fetch wallet addresses for these users
+        const userIds = entries.map(e => e.user_id);
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('id, wallet_address')
+          .in('id', userIds);
+
+        if (usersError) throw usersError;
+
+        // Map entries to PlayerStakes with wallet addresses
+        const formattedStakes: PlayerStake[] = entries.map(e => {
+          const user = users?.find(u => u.id === e.user_id);
+          return {
+            player: user?.wallet_address || e.user_id, // Use wallet address, fallback to user_id
+            stake: Number(e.stake_amount)
+          };
+        });
 
         setStakes(formattedStakes);
       } catch (err) {

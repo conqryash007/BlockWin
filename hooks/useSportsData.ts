@@ -324,3 +324,110 @@ export function useRateLimitStatus() {
 
   return status;
 }
+
+// Popular sports to fetch for the main sports page
+const POPULAR_SPORTS = [
+  'soccer_epl',
+  'soccer_spain_la_liga', 
+  'basketball_nba',
+  'americanfootball_nfl',
+  'icehockey_nhl',
+  'baseball_mlb',
+  'mma_mixed_martial_arts',
+  'tennis_atp_australian_open',
+];
+
+/**
+ * Hook to fetch events from multiple popular sports
+ * Returns combined events sorted by commence_time
+ */
+export function useAllSportsEvents(pollIntervalMs: number = 60000) {
+  const [events, setEvents] = useState<SportEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMounted = useRef(true);
+
+  const fetchAllEvents = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Fetch odds from multiple sports in parallel
+      const promises = POPULAR_SPORTS.map(sport => 
+        api.fetchOdds(sport, { 
+          regions: 'us,uk,eu', 
+          markets: 'h2h,spreads,totals',
+          oddsFormat: 'decimal'
+        })
+      );
+
+      const results = await Promise.all(promises);
+      
+      // Combine all events
+      const allEvents: SportEvent[] = [];
+      let hasAnyError = false;
+
+      results.forEach((result, index) => {
+        if (result.error) {
+          console.warn(`Failed to fetch ${POPULAR_SPORTS[index]}:`, result.error);
+          hasAnyError = true;
+        } else if (result.data) {
+          // Add league info based on sport_title
+          result.data.forEach(event => {
+            allEvents.push({
+              ...event,
+              league: event.sport_title || event.sport_key,
+            });
+          });
+        }
+      });
+
+      // Sort by commence_time (soonest first)
+      allEvents.sort((a, b) => 
+        new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime()
+      );
+
+      if (isMounted.current) {
+        setEvents(allEvents);
+        
+        if (allEvents.length === 0 && hasAnyError) {
+          setError('Failed to load events. The API may be rate limited.');
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching all sports events:', err);
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch events');
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    isMounted.current = true;
+    fetchAllEvents();
+
+    // Set up polling
+    if (pollIntervalMs > 0) {
+      intervalRef.current = setInterval(fetchAllEvents, pollIntervalMs);
+    }
+
+    return () => {
+      isMounted.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [fetchAllEvents, pollIntervalMs]);
+
+  const refetch = useCallback(() => {
+    fetchAllEvents();
+  }, [fetchAllEvents]);
+
+  return { events, isLoading, error, refetch };
+}
+

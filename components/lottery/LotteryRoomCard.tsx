@@ -103,7 +103,7 @@ export function LotteryRoomCard({ room }: LotteryRoomCardProps) {
               {isSettled ? <Crown className="w-5 h-5 text-purple-400" /> : <Trophy className="w-5 h-5 text-casino-brand" />}
             </div>
             <div>
-              <h3 className="text-white font-bold text-lg">Room #{room.roomId.toString()}</h3>
+              <h3 className="text-white font-bold text-lg">{room.name || `Room #${room.roomId.slice(0, 8)}`}</h3>
               <p className="text-xs text-muted-foreground">{getPayoutLabel(room.payoutType)}</p>
             </div>
           </div>

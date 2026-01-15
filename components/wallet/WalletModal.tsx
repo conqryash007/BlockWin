@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, Wallet, Smartphone, Globe, ChevronRight, LogOut, Loader2, ArrowRight, CheckCircle2 } from "lucide-react";
-import { useConnect, useDisconnect, useAccount } from "wagmi";
+import { useConnect, useDisconnect, useAccount, useChainId, useSwitchChain } from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -64,6 +65,11 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
   const { disconnect } = useDisconnect();
   const { address } = useAccount();
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
+  const chainId = useChainId();
+  const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
+  
+  // Check if user is on wrong network
+  const isWrongNetwork = isConnected && chainId !== sepolia.id;
   
   // Deposit state
   const [amount, setAmount] = useState('');
@@ -242,6 +248,35 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                     <p className="text-[10px] text-muted-foreground/40 uppercase tracking-widest font-medium">Secured by Wagmi</p>
                 </div>
              </div>
+        ) : isWrongNetwork ? (
+            <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
+                <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center animate-pulse">
+                    <Globe className="w-8 h-8 text-orange-500" />
+                </div>
+                <div className="text-center space-y-2">
+                    <h3 className="text-lg font-bold text-white">Wrong Network</h3>
+                    <p className="text-sm text-muted-foreground max-w-[260px]">
+                        Please switch to the Sepolia test network to continue.
+                    </p>
+                </div>
+                <Button 
+                    onClick={() => switchChain({ chainId: sepolia.id })}
+                    disabled={isSwitchingChain}
+                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold max-w-[200px]"
+                >
+                    {isSwitchingChain ? (
+                        <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Switching...
+                        </>
+                    ) : (
+                        "Switch to Sepolia"
+                    )}
+                </Button>
+                <p className="text-xs text-muted-foreground text-center max-w-[260px]">
+                    If the switch fails, please manually change your network in your wallet app.
+                </p>
+            </div>
         ) : !isAuthenticated ? (
             <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
                 {accountStatus === 'checking' ? (

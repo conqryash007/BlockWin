@@ -153,7 +153,26 @@ export function useAuth() {
       const message = `Sign this message to login to BlockWin Casino. Nonce: ${nonce}`;
       
       // 3. Sign Message
-      const signature = await signMessageAsync({ message });
+      let signature: string;
+      try {
+        signature = await signMessageAsync({ message });
+      } catch (signError: any) {
+        // Handle chain switching errors for mobile wallets
+        if (signError?.message?.includes('Chain not configured') || 
+            signError?.message?.includes('chain') ||
+            signError?.shortMessage?.includes('Chain not configured')) {
+          toast.error('Please switch to Sepolia network in your wallet and try again');
+          setLoading(false);
+          return;
+        }
+        // Handle user rejection
+        if (signError?.code === 4001 || signError?.message?.includes('rejected')) {
+          toast.error('Signature request was rejected');
+          setLoading(false);
+          return;
+        }
+        throw signError;
+      }
 
       console.log("Sending auth request:", { address, signature, nonce });
 
@@ -191,7 +210,13 @@ export function useAuth() {
       
     } catch (err: any) {
       console.error(err);
-      toast.error(typeof err === 'object' ? (err.message || JSON.stringify(err)) : 'Login failed');
+      // Check for chain-related errors at the top level too
+      if (err?.message?.includes('Chain not configured') ||
+          err?.message?.includes('chain mismatch')) {
+        toast.error('Please switch to Sepolia network in your wallet and try again');
+      } else {
+        toast.error(typeof err === 'object' ? (err.message || JSON.stringify(err)) : 'Login failed');
+      }
     } finally {
       setLoading(false);
     }

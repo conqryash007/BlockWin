@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { AdminGate } from '@/components/admin/AdminGate';
 import { GamesManagement } from '@/components/admin/GamesManagement';
 import { WithdrawalApproval } from '@/components/admin/WithdrawalApproval';
+import { LotteryManagement } from '@/components/admin/LotteryManagement';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield } from 'lucide-react';
+import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield, Ticket } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -86,6 +87,10 @@ function AdminDashboardContent() {
             <CreditCard className="h-4 w-4 mr-2" />
             Withdrawal Approvals
           </TabsTrigger>
+          <TabsTrigger value="lottery" className="data-[state=active]:bg-casino-brand/20">
+            <Ticket className="h-4 w-4 mr-2" />
+            Lottery
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="games">
@@ -94,6 +99,10 @@ function AdminDashboardContent() {
 
         <TabsContent value="withdrawals">
           <WithdrawalApproval />
+        </TabsContent>
+
+        <TabsContent value="lottery">
+          <LotteryManagement />
         </TabsContent>
       </Tabs>
     </div>

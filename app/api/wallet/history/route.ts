@@ -33,6 +33,10 @@ function isGameWin(gameType: string, outcome: any, payout: number, betAmount: nu
       // Plinko: win if payout > bet amount (profit made)
       return payout > betAmount;
     
+    case 'lottery':
+      // Lottery uses explicit win field in outcome
+      return outcome?.win === true;
+    
     default:
       // Fallback: check for explicit win field or payout comparison
       if (typeof outcome?.win === 'boolean') {

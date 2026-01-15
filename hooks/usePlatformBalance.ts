@@ -2,9 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
+import { createClient } from '@supabase/supabase-js';
 
 // Custom event name for balance updates
 const BALANCE_UPDATED_EVENT = 'balance-updated';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 /**
  * Trigger a balance refresh across all components using usePlatformBalance.
@@ -15,12 +21,6 @@ export function triggerBalanceRefresh() {
     window.dispatchEvent(new CustomEvent(BALANCE_UPDATED_EVENT));
   }
 }
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
 
 export function usePlatformBalance() {
   const { address, isConnected } = useAccount();
@@ -73,6 +73,24 @@ export function usePlatformBalance() {
   // Fetch on mount and when address changes
   useEffect(() => {
     fetchBalance();
+  }, [fetchBalance]);
+
+  // Listen for Supabase auth state changes (account switch triggers sign out/sign in)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event);
+      if (event === 'SIGNED_OUT') {
+        // Immediately reset balance when signed out
+        setBalance(0);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // Fetch balance when signed in or token refreshed
+        fetchBalance();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [fetchBalance]);
 
   // Listen for balance update events (triggered by game components)

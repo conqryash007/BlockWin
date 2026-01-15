@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Trash2, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -31,8 +30,7 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
     potentialReturn,
   } = useBetslip();
   const { format } = useOddsFormat();
-  const { login } = useAuth();
-  const supabase = createClient();
+  const { login, session, isAuthenticated } = useAuth();
   
   const [isPlacing, setIsPlacing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -53,13 +51,82 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
     }
   };
 
-  /* Imports added at top of file by previous tool or manually if needed, but here I replace the function body */
-  // Need to add imports if not present. I'll use multi_replace if imports are missing.
-  // Wait, I can't see if I have imports for createClient/useAuth in the file content I viewed?
-  // UseBetslip is imported. Utils imported.
-  // I need to add imports. I should use multi_replace.
-  
-  const handlePlaceBet = async () => { /* Placeholder to abort this replace and use multi_replace */ };
+  const handlePlaceBet = async () => {
+    // Check authentication
+    if (!isAuthenticated || !session?.access_token) {
+      toast.error("Please sign in to place bets");
+      login();
+      return;
+    }
+
+    // Validate selections
+    if (items.length === 0) {
+      toast.error("Add selections to your bet slip");
+      return;
+    }
+
+    // Validate stakes
+    const hasValidStakes = betType === "parlay" 
+      ? totalStake > 0 
+      : items.every(item => (item.stake || 0) > 0);
+    
+    if (!hasValidStakes) {
+      toast.error("Please enter stake amounts");
+      return;
+    }
+
+    setIsPlacing(true);
+
+    try {
+      const selections = items.map(item => ({
+        eventId: item.eventId || item.id,
+        eventName: item.eventName || item.name,
+        market: item.market || 'h2h',
+        selection: item.name,
+        odds: item.odds,
+      }));
+
+      const stakes = betType === "parlay" 
+        ? [totalStake] 
+        : items.map(item => item.stake || 0);
+
+      const response = await fetch('/api/sports/place-bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          betType,
+          selections,
+          stakes,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to place bet');
+      }
+
+      // Success!
+      toast.success(
+        `Bet placed! Potential payout: $${data.potentialPayout.toFixed(2)}`,
+        { duration: 5000 }
+      );
+      clearSlip();
+      setShowSuccess(true);
+      
+      // Reset success state after 3 seconds
+      setTimeout(() => setShowSuccess(false), 3000);
+
+    } catch (error: any) {
+      console.error('Bet placement error:', error);
+      toast.error(error.message || 'Failed to place bet');
+    } finally {
+      setIsPlacing(false);
+    }
+  };
 
   const hasAnyOddsChanges = items.some((item) => hasOddsChanged(item.id));
 

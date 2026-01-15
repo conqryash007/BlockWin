@@ -30,6 +30,7 @@ const GAME_CONFIG: Record<string, { label: string; color: string }> = {
   dice: { label: 'Dice', color: 'text-blue-400' },
   mines: { label: 'Mines', color: 'text-red-400' },
   plinko: { label: 'Plinko', color: 'text-purple-400' },
+  lottery: { label: 'Lottery', color: 'text-yellow-400' },
 };
 
 function formatCurrency(amount: number): string {
