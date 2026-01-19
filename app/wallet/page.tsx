@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WalletModal } from '@/components/wallet/WalletModal';
+import { MySportsBets } from '@/components/sports/MySportsBets';
 
 // Game type icons and colors
 const GAME_CONFIG: Record<string, { label: string; color: string }> = {
@@ -378,6 +379,9 @@ export default function WalletPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Sports Bets History */}
+      <MySportsBets showSummary={true} maxHeight="500px" />
 
       {/* Wallet Modal */}
       <WalletModal

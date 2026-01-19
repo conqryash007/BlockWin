@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useMemo, useState, useEffect } from "react";
 import { MatchInfo } from "@/components/sports/MatchInfo";
 import { MarketsTabs } from "@/components/sports/MarketsTabs";
 import { SportsBetSlip } from "@/components/sports/SportsBetSlip";
@@ -10,34 +10,63 @@ import { TeamLogo } from "@/components/sports/TeamLogo";
 import { LeagueBanner } from "@/components/sports/LeagueBanner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Search, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { MOCK_EVENTS } from "@/lib/mockSportsData";
 import { isEventLive } from "@/lib/oddsUtils";
 import { cn } from "@/lib/utils";
+import { useEventOdds } from "@/hooks/useSportsData";
+import { SportEvent } from "@/types/sports";
 
 export default function EventDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const eventId = params.eventId as string;
-
-  // Find the event from mock data
-  const event = useMemo(() => {
+  const sportKey = searchParams.get('sport') || '';
+  
+  // First try mock data
+  const mockEvent = useMemo(() => {
     return MOCK_EVENTS.find((e) => e.id === eventId);
   }, [eventId]);
 
+  // If sport key is provided and not in mock data, try to fetch from API
+  const shouldFetchFromAPI = !mockEvent && sportKey && sportKey.length > 0;
+  const { event: apiEvent, isLoading: isLoadingAPI, error: apiError } = useEventOdds(
+    shouldFetchFromAPI ? sportKey : '',
+    eventId,
+    false, // isLive
+    !shouldFetchFromAPI  // useMock - use mock if we shouldn't fetch from API
+  );
+
+  // Determine which event to use
+  const event: SportEvent | null = mockEvent || (shouldFetchFromAPI ? apiEvent : null);
+  const isLoading = shouldFetchFromAPI ? isLoadingAPI : false;
+  const error = shouldFetchFromAPI ? apiError : null;
+
   const isLive = event ? isEventLive(event.commence_time, event.completed) : false;
 
-  if (!event) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
-        <div className="text-6xl mb-4">🔍</div>
+        <Loader2 className="w-8 h-8 animate-spin text-casino-brand mb-4" />
+        <p className="text-muted-foreground">Loading event...</p>
+      </div>
+    );
+  }
+
+  if (!event || error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-4">
+        <div className="w-20 h-20 rounded-full bg-casino-brand/10 flex items-center justify-center mb-6">
+          <Search className="w-10 h-10 text-casino-brand" />
+        </div>
         <h1 className="text-2xl font-bold text-white mb-2">Event Not Found</h1>
-        <p className="text-muted-foreground mb-6">
-          The event you're looking for doesn't exist or has been removed.
+        <p className="text-muted-foreground mb-6 max-w-md">
+          The event you're looking for doesn't exist or has been removed. It may have been completed or the event ID is invalid.
         </p>
         <Link href="/sports">
-          <Button variant="casino">
-            <ArrowLeft className="w-4 h-4 mr-2" />
+          <Button variant="casino" className="gap-2">
+            <ArrowLeft className="w-4 h-4" />
             Back to Sports
           </Button>
         </Link>

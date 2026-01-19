@@ -56,6 +56,7 @@ export function EventRow({ event, market = "h2h", className }: EventRowProps) {
       eventName: `${event.home_team} vs ${event.away_team}`,
       odds: outcome.price,
       market,
+      point: outcome.point,
       isLive,
     });
   };
@@ -66,7 +67,7 @@ export function EventRow({ event, market = "h2h", className }: EventRowProps) {
   };
 
   return (
-    <Link href={`/sports/event/${event.id}`}>
+    <Link href={`/sports/event/${event.id}?sport=${event.sport_key}`}>
       <div
         className={cn(
           "group flex flex-col md:flex-row items-stretch md:items-center gap-4 p-4",

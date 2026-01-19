@@ -3,7 +3,7 @@
 import { Sport, SportEvent, LiveScore, Bookmaker } from '@/types/sports';
 
 const API_BASE = 'https://api.the-odds-api.com/v4';
-const API_KEY = '96d42ef463701e52dd156db06fb906c0';
+const API_KEY = process.env.NEXT_PUBLIC_ODDS_API_KEY || '';
 
 // Rate limiting state
 let remainingRequests: number | null = null;
@@ -99,12 +99,14 @@ export async function fetchEvents(sport: string): Promise<ApiResponse<SportEvent
 export async function fetchOdds(
   sport: string,
   options: {
-    regions?: string; // us, uk, eu, au
-    markets?: string; // h2h, spreads, totals
+    regions?: string; // us, uk, eu, au - Default to 'us' for minimal quota usage
+    markets?: string; // h2h, spreads, totals - Default to 'h2h' for minimal quota usage
     oddsFormat?: 'decimal' | 'american';
     eventIds?: string; // Comma-separated event IDs
   } = {}
 ): Promise<ApiResponse<SportEvent[]>> {
+  // OPTIMIZATION: Default to single region and single market to minimize quota cost
+  // Cost formula: markets × regions (e.g., 1 market × 1 region = 1 credit)
   const { regions = 'us', markets = 'h2h', oddsFormat = 'decimal', eventIds } = options;
   
   return apiFetch<SportEvent[]>(`/sports/${sport}/odds`, {
@@ -144,6 +146,8 @@ export async function fetchEventOdds(
     oddsFormat?: 'decimal' | 'american';
   } = {}
 ): Promise<ApiResponse<SportEvent>> {
+  // OPTIMIZATION: Use single region by default, keep all markets for detailed view
+  // Cost: 3 markets × 1 region = 3 credits per event detail
   const { regions = 'us', markets = 'h2h,spreads,totals', oddsFormat = 'decimal' } = options;
   
   return apiFetch<SportEvent>(`/sports/${sport}/events/${eventId}/odds`, {

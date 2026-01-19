@@ -52,6 +52,37 @@ export async function getUserFromToken(authHeader: string | null): Promise<{ use
   return { userId: user.id };
 }
 
+// Get admin user from authorization header (checks is_admin flag)
+export async function getAdminFromToken(authHeader: string | null): Promise<{ userId: string; isAdmin: boolean; error?: string }> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { userId: '', isAdmin: false, error: 'Missing or invalid authorization header' };
+  }
+
+  const token = authHeader.replace('Bearer ', '');
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+  if (error || !user) {
+    return { userId: '', isAdmin: false, error: 'Invalid or expired token' };
+  }
+
+  // Check if user is admin
+  const { data: userData, error: userError } = await supabaseAdmin
+    .from('users')
+    .select('is_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (userError || !userData) {
+    return { userId: user.id, isAdmin: false, error: 'User not found' };
+  }
+
+  if (!userData.is_admin) {
+    return { userId: user.id, isAdmin: false, error: 'Admin access required' };
+  }
+
+  return { userId: user.id, isAdmin: true };
+}
+
 // Fetch house edge for a game
 export async function getHouseEdge(gameSlug: string): Promise<{ houseEdge: number; gameId: string; error?: string }> {
   const { data, error } = await supabaseAdmin

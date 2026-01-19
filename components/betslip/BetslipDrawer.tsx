@@ -5,8 +5,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useBetslip } from "@/hooks/useBetslip";
+import { useAuth } from "@/hooks/useAuth";
 import { Trash2, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const QUICK_STAKES = [50, 100, 200, 500];
 
@@ -22,26 +24,98 @@ export function BetslipDrawer() {
     totalOdds,
     potentialReturn 
   } = useBetslip();
+  const { login, session, isAuthenticated } = useAuth();
   
   const [isPlacing, setIsPlacing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
   const handlePlaceBet = async () => {
-    if (items.length === 0 || totalStake === 0) return;
+    // Check authentication
+    if (!isAuthenticated || !session?.access_token) {
+      toast.error("Please sign in to place bets");
+      login();
+      return;
+    }
+
+    // Validate selections
+    if (items.length === 0) {
+      toast.error("Add selections to your bet slip");
+      return;
+    }
+
+    // Validate stakes
+    const hasValidStakes = items.every(item => (item.stake || 0) > 0);
+    if (!hasValidStakes) {
+      toast.error("Please enter stake amounts");
+      return;
+    }
 
     setIsPlacing(true);
-    
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    setIsPlacing(false);
-    setShowSuccess(true);
-    
-    // Clear after showing success
-    setTimeout(() => {
-      setShowSuccess(false);
-      clearSlip();
-    }, 2000);
+
+    try {
+      // Prepare selections for API
+      const selections = items.map(item => ({
+        eventId: item.eventId || item.id,
+        eventName: item.eventName || item.name,
+        market: item.market || 'h2h',
+        selection: item.name,
+        odds: Number(item.odds) || 0,
+        point: item.point,
+      }));
+
+      const stakes = items.map(item => Number(item.stake) || 0);
+
+      // Validate stakes
+      if (stakes.some(s => s <= 0)) {
+        throw new Error('All stakes must be greater than 0');
+      }
+
+      console.log('BetslipDrawer: Placing bet:', { selectionsCount: selections.length, stakes, totalStake });
+
+      const response = await fetch('/api/sports/place-bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          betType: 'single',
+          selections,
+          stakes,
+        }),
+      });
+
+      const data = await response.json();
+
+      console.log('BetslipDrawer: Bet placement response:', { success: data.success, error: data.error, betIds: data.betIds });
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to place bet');
+      }
+
+      // Success!
+      toast.success(
+        `Bet placed! Potential payout: $${data.potentialPayout.toFixed(2)}`,
+        { duration: 5000 }
+      );
+      
+      setShowSuccess(true);
+      
+      // Trigger event to notify other components
+      window.dispatchEvent(new CustomEvent('sports-bet-placed'));
+      
+      // Clear after showing success
+      setTimeout(() => {
+        setShowSuccess(false);
+        clearSlip();
+      }, 2000);
+
+    } catch (error: any) {
+      console.error('BetslipDrawer: Bet placement error:', error);
+      toast.error(error.message || 'Failed to place bet');
+    } finally {
+      setIsPlacing(false);
+    }
   };
 
   return (

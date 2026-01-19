@@ -5,10 +5,11 @@ import { AdminGate } from '@/components/admin/AdminGate';
 import { GamesManagement } from '@/components/admin/GamesManagement';
 import { WithdrawalApproval } from '@/components/admin/WithdrawalApproval';
 import { LotteryManagement } from '@/components/admin/LotteryManagement';
+import { SportsBetSettlement } from '@/components/admin/SportsBetSettlement';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield, Ticket } from 'lucide-react';
+import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield, Ticket, Trophy } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -91,6 +92,10 @@ function AdminDashboardContent() {
             <Ticket className="h-4 w-4 mr-2" />
             Lottery
           </TabsTrigger>
+          <TabsTrigger value="sports" className="data-[state=active]:bg-casino-brand/20">
+            <Trophy className="h-4 w-4 mr-2" />
+            Sports Bets
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="games">
@@ -103,6 +108,10 @@ function AdminDashboardContent() {
 
         <TabsContent value="lottery">
           <LotteryManagement />
+        </TabsContent>
+
+        <TabsContent value="sports">
+          <SportsBetSettlement />
         </TabsContent>
       </Tabs>
     </div>

@@ -325,40 +325,69 @@ export function useRateLimitStatus() {
   return status;
 }
 
-// Popular sports to fetch for the main sports page
-const POPULAR_SPORTS = [
-  'soccer_epl',
-  'soccer_spain_la_liga', 
-  'basketball_nba',
-  'americanfootball_nfl',
-  'icehockey_nhl',
-  'baseball_mlb',
-  'mma_mixed_martial_arts',
-  'tennis_atp_australian_open',
-];
+// Sport keys for The Odds API (maps category to actual API sport keys)
+// These are the actively supported sports for our platform
+const SPORT_API_KEYS: Record<string, string[]> = {
+  soccer: ['soccer_epl', 'soccer_spain_la_liga', 'soccer_germany_bundesliga', 'soccer_italy_serie_a'],
+  basketball: ['basketball_nba', 'basketball_euroleague'],
+  cricket: ['cricket_ipl', 'cricket_test_match'],
+  tennis: ['tennis_atp_french_open', 'tennis_wta_french_open'],
+  mma: ['mma_mixed_martial_arts'],
+  baseball: ['baseball_mlb'],
+  americanfootball: ['americanfootball_nfl'],
+  icehockey: ['icehockey_nhl'],
+};
 
 /**
- * Hook to fetch events from multiple popular sports
- * Returns combined events sorted by commence_time
+ * Hook to fetch events lazily - ONLY when a sport category is selected
+ * This dramatically reduces API quota usage:
+ * - Page load: 0 credits (vs 72 with useAllSportsEvents)
+ * - Per sport selected: 1 credit (h2h market, us region)
+ * 
+ * Uses caching to avoid re-fetching the same sport
  */
-export function useAllSportsEvents(pollIntervalMs: number = 60000) {
+export function useLazySportEvents(
+  selectedSport: string | null,
+  pollIntervalMs: number = 60000
+) {
   const [events, setEvents] = useState<SportEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useRef(true);
+  // Cache to avoid re-fetching already loaded sports
+  const cacheRef = useRef<Record<string, { events: SportEvent[]; timestamp: number }>>({});
 
-  const fetchAllEvents = useCallback(async () => {
+  const fetchSportEvents = useCallback(async (sportCategory: string) => {
     setIsLoading(true);
     setError(null);
 
+    // Check cache first (valid for 30 seconds)
+    const cached = cacheRef.current[sportCategory];
+    const now = Date.now();
+    if (cached && now - cached.timestamp < 30000) {
+      setEvents(cached.events);
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      // Fetch odds from multiple sports in parallel
-      const promises = POPULAR_SPORTS.map(sport => 
+      // Get the API sport keys for this category
+      const sportKeys = SPORT_API_KEYS[sportCategory] || [];
+      
+      if (sportKeys.length === 0) {
+        // If no mapping, try using the category directly as a sport filter
+        setEvents([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch odds for each sport in the category
+      // OPTIMIZATION: Uses default 'us' region and 'h2h' market = 1 credit per sport
+      const promises = sportKeys.map(sport => 
         api.fetchOdds(sport, { 
-          regions: 'us,uk,eu', 
-          markets: 'h2h,spreads,totals',
           oddsFormat: 'decimal'
+          // Defaults: regions: 'us', markets: 'h2h' = 1 credit each
         })
       );
 
@@ -366,14 +395,11 @@ export function useAllSportsEvents(pollIntervalMs: number = 60000) {
       
       // Combine all events
       const allEvents: SportEvent[] = [];
-      let hasAnyError = false;
 
       results.forEach((result, index) => {
         if (result.error) {
-          console.warn(`Failed to fetch ${POPULAR_SPORTS[index]}:`, result.error);
-          hasAnyError = true;
+          console.warn(`Failed to fetch ${sportKeys[index]}:`, result.error);
         } else if (result.data) {
-          // Add league info based on sport_title
           result.data.forEach(event => {
             allEvents.push({
               ...event,
@@ -388,15 +414,120 @@ export function useAllSportsEvents(pollIntervalMs: number = 60000) {
         new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime()
       );
 
+      // Update cache
+      cacheRef.current[sportCategory] = {
+        events: allEvents,
+        timestamp: now,
+      };
+
       if (isMounted.current) {
         setEvents(allEvents);
         
-        if (allEvents.length === 0 && hasAnyError) {
-          setError('Failed to load events. The API may be rate limited.');
+        if (allEvents.length === 0) {
+          setError('No events found for this sport. Events may be unavailable if not in season.');
         }
       }
     } catch (err) {
-      console.error('Error fetching all sports events:', err);
+      console.error('Error fetching sport events:', err);
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch events');
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    isMounted.current = true;
+    
+    // Clear previous interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // Only fetch if a sport is selected
+    if (selectedSport) {
+      fetchSportEvents(selectedSport);
+
+      // Set up polling only when a sport is selected
+      if (pollIntervalMs > 0) {
+        intervalRef.current = setInterval(() => {
+          // Clear cache before polling to get fresh data
+          if (selectedSport) {
+            delete cacheRef.current[selectedSport];
+            fetchSportEvents(selectedSport);
+          }
+        }, pollIntervalMs);
+      }
+    } else {
+      // No sport selected - clear events (no API call = 0 credits)
+      setEvents([]);
+      setIsLoading(false);
+      setError(null);
+    }
+
+    return () => {
+      isMounted.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [selectedSport, fetchSportEvents, pollIntervalMs]);
+
+  const refetch = useCallback(() => {
+    if (selectedSport) {
+      // Clear cache to force fresh fetch
+      delete cacheRef.current[selectedSport];
+      fetchSportEvents(selectedSport);
+    }
+  }, [selectedSport, fetchSportEvents]);
+
+  return { events, isLoading, error, refetch };
+}
+
+/**
+ * @deprecated Use useLazySportEvents instead for better quota management
+ * This hook fetches ALL sports at once and is very expensive (72+ credits per load)
+ */
+export function useAllSportsEvents(pollIntervalMs: number = 60000) {
+  const [events, setEvents] = useState<SportEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMounted = useRef(true);
+
+  // DEPRECATED: This function is expensive and should not be used
+  // Kept for backwards compatibility
+  const fetchAllEvents = useCallback(async () => {
+    console.warn('useAllSportsEvents is deprecated. Use useLazySportEvents instead for better quota management.');
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Only fetch a single sport to reduce costs
+      const response = await api.fetchOdds('soccer_epl', {
+        oddsFormat: 'decimal'
+      });
+
+      if (response.error) {
+        setError(response.error);
+      } else if (response.data && isMounted.current) {
+        const allEvents = response.data.map(event => ({
+          ...event,
+          league: event.sport_title || event.sport_key,
+        }));
+        
+        allEvents.sort((a, b) => 
+          new Date(a.commence_time).getTime() - new Date(b.commence_time).getTime()
+        );
+        
+        setEvents(allEvents);
+      }
+    } catch (err) {
+      console.error('Error fetching events:', err);
       if (isMounted.current) {
         setError(err instanceof Error ? err.message : 'Failed to fetch events');
       }
@@ -411,7 +542,6 @@ export function useAllSportsEvents(pollIntervalMs: number = 60000) {
     isMounted.current = true;
     fetchAllEvents();
 
-    // Set up polling
     if (pollIntervalMs > 0) {
       intervalRef.current = setInterval(fetchAllEvents, pollIntervalMs);
     }

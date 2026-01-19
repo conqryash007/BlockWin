@@ -78,17 +78,35 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
     setIsPlacing(true);
 
     try {
-      const selections = items.map(item => ({
-        eventId: item.eventId || item.id,
-        eventName: item.eventName || item.name,
-        market: item.market || 'h2h',
-        selection: item.name,
-        odds: item.odds,
-      }));
+      // Validate and prepare selections
+      const selections = items.map(item => {
+        const selection = {
+          eventId: item.eventId || item.id,
+          eventName: item.eventName || item.name,
+          market: item.market || 'h2h',
+          selection: item.name,
+          odds: Number(item.odds) || 0,
+          point: item.point,
+        };
+
+        // Validate selection
+        if (!selection.eventId || !selection.eventName || !selection.selection || !selection.odds) {
+          throw new Error(`Invalid selection: ${JSON.stringify(selection)}`);
+        }
+
+        return selection;
+      });
 
       const stakes = betType === "parlay" 
         ? [totalStake] 
-        : items.map(item => item.stake || 0);
+        : items.map(item => Number(item.stake) || 0);
+
+      // Validate stakes
+      if (stakes.some(s => s <= 0)) {
+        throw new Error('All stakes must be greater than 0');
+      }
+
+      console.log('Placing bet:', { betType, selectionsCount: selections.length, stakes, totalStake });
 
       const response = await fetch('/api/sports/place-bet', {
         method: 'POST',
@@ -105,8 +123,13 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
 
       const data = await response.json();
 
+      console.log('Bet placement response:', { success: data.success, error: data.error, betIds: data.betIds, code: data.code, details: data.details });
+
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to place bet');
+        const error = new Error(data.error || 'Failed to place bet') as any;
+        error.code = data.code;
+        error.details = data.details;
+        throw error;
       }
 
       // Success!
@@ -117,12 +140,40 @@ export function SportsBetSlip({ className }: SportsBetSlipProps) {
       clearSlip();
       setShowSuccess(true);
       
+      // Trigger a custom event to notify other components to refresh
+      window.dispatchEvent(new CustomEvent('sports-bet-placed'));
+      
       // Reset success state after 3 seconds
       setTimeout(() => setShowSuccess(false), 3000);
 
     } catch (error: any) {
       console.error('Bet placement error:', error);
-      toast.error(error.message || 'Failed to place bet');
+      const errorMessage = error.message || 'Failed to place bet';
+      const solution = error.solution || '';
+      
+      // Show detailed error in toast
+      toast.error(errorMessage, {
+        description: solution || (error.code ? `Error code: ${error.code}` : undefined),
+        duration: 10000,
+      });
+      
+      // Log full error for debugging
+      console.error('Full error object:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        solution: error.solution,
+        stack: error.stack,
+      });
+
+      // If table doesn't exist, show a helpful message
+      if (error.code === '42P01') {
+        toast.error('Database table missing', {
+          description: 'Please visit /migrations to run the required database migration',
+          duration: 12000,
+        });
+      }
     } finally {
       setIsPlacing(false);
     }

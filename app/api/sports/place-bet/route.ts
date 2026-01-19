@@ -50,12 +50,35 @@ interface SportsBetRecord {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('=== SPORTS BET PLACEMENT START ===');
   try {
     // Authenticate user
     const authHeader = request.headers.get('authorization');
+    console.log('Auth header present:', !!authHeader, authHeader ? `(length: ${authHeader.length})` : '');
+    
     const { userId, error: authError } = await getUserFromToken(authHeader);
+    console.log('getUserFromToken result:', { userId: userId || 'EMPTY', authError: authError || 'NONE' });
     if (authError) {
       return NextResponse.json({ error: authError, success: false }, { status: 401 });
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID not found', success: false }, { status: 401 });
+    }
+
+    // Verify user exists in users table (required for foreign key constraint)
+    const { data: userCheck, error: userCheckError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', userId)
+      .single();
+
+    if (userCheckError || !userCheck) {
+      console.error('User not found in users table:', { userId, error: userCheckError });
+      return NextResponse.json({ 
+        error: 'User account not found. Please ensure you are properly registered.', 
+        success: false 
+      }, { status: 404 });
     }
 
     // Rate limit check
@@ -68,6 +91,14 @@ export async function POST(request: NextRequest) {
     const body: PlaceBetRequest = await request.json();
     const { betType, selections, stakes } = body;
 
+    console.log('Received bet placement request:', {
+      userId,
+      betType,
+      selectionsCount: selections?.length || 0,
+      stakesCount: stakes?.length || 0,
+      sampleSelection: selections?.[0],
+    });
+
     // Validate request
     if (!selections || selections.length === 0) {
       return NextResponse.json({ error: 'No selections provided', success: false }, { status: 400 });
@@ -77,9 +108,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No stake amounts provided', success: false }, { status: 400 });
     }
 
+    // Validate each selection
+    for (const sel of selections) {
+      if (!sel.eventId || !sel.eventName || !sel.selection || !sel.odds || sel.odds <= 0) {
+        console.error('Invalid selection:', sel);
+        return NextResponse.json({ 
+          error: `Invalid selection data: ${JSON.stringify(sel)}`, 
+          success: false 
+        }, { status: 400 });
+      }
+    }
+
     // Validate stakes are positive
     for (const stake of stakes) {
-      if (stake <= 0) {
+      if (!stake || stake <= 0) {
         return NextResponse.json({ error: 'Stake must be greater than 0', success: false }, { status: 400 });
       }
     }
@@ -115,23 +157,31 @@ export async function POST(request: NextRequest) {
         const stake = stakes[index] || stakes[0];
         const potentialPayout = stake * sel.odds;
         const profit = potentialPayout - stake;
-        const betFee = profit * HOUSE_EDGE;
+        const betFee = Math.max(0, profit * HOUSE_EDGE); // Ensure non-negative
         
         totalPotentialPayout += potentialPayout - betFee;
         totalFees += betFee;
 
-        betsToInsert.push({
+        const betRecord: SportsBetRecord = {
           user_id: userId,
-          event_id: sel.eventId,
-          event_name: sel.eventName,
-          market_type: sel.market,
-          selection: sel.point ? `${sel.selection} (${sel.point > 0 ? '+' : ''}${sel.point})` : sel.selection,
-          odds: sel.odds,
-          stake: stake,
-          bet_fee: betFee,
-          potential_payout: potentialPayout - betFee,
+          event_id: sel.eventId || '',
+          event_name: sel.eventName || '',
+          market_type: sel.market || 'h2h',
+          selection: sel.point ? `${sel.selection} (${sel.point > 0 ? '+' : ''}${sel.point})` : (sel.selection || ''),
+          odds: Number(sel.odds) || 0,
+          stake: Number(stake) || 0,
+          bet_fee: Number(betFee) || 0,
+          potential_payout: Number(potentialPayout - betFee) || 0,
           status: 'pending',
-        });
+        };
+
+        // Validate required fields
+        if (!betRecord.event_id || !betRecord.event_name || !betRecord.selection) {
+          console.error('Invalid bet record:', betRecord);
+          throw new Error('Invalid bet data: missing required fields');
+        }
+
+        betsToInsert.push(betRecord);
       });
     } else {
       // Process parlay bet
@@ -151,19 +201,27 @@ export async function POST(request: NextRequest) {
       
       const eventNames = selections.map(s => s.eventName).join(' | ');
 
-      betsToInsert.push({
+      const parlayRecord: SportsBetRecord = {
         user_id: userId,
-        event_id: selections.map(s => s.eventId).join(','),
-        event_name: eventNames,
+        event_id: selections.map(s => s.eventId || '').filter(Boolean).join(','),
+        event_name: eventNames || '',
         market_type: 'parlay',
-        selection: parlaySelections,
-        odds: combinedOdds,
-        stake: stake,
-        bet_fee: betFee,
-        potential_payout: totalPotentialPayout,
+        selection: parlaySelections || '',
+        odds: Number(combinedOdds) || 0,
+        stake: Number(stake) || 0,
+        bet_fee: Number(betFee) || 0,
+        potential_payout: Number(totalPotentialPayout) || 0,
         status: 'pending',
         parlay_id: parlayId,
-      });
+      };
+
+      // Validate required fields
+      if (!parlayRecord.event_id || !parlayRecord.event_name || !parlayRecord.selection) {
+        console.error('Invalid parlay record:', parlayRecord);
+        throw new Error('Invalid parlay data: missing required fields');
+      }
+
+      betsToInsert.push(parlayRecord);
     }
 
     // Deduct balance
@@ -171,6 +229,27 @@ export async function POST(request: NextRequest) {
     const { error: updateError } = await updateBalance(userId, newBalance);
     if (updateError) {
       return NextResponse.json({ error: 'Failed to update balance', success: false }, { status: 500 });
+    }
+
+    // Log what we're about to insert
+    console.log('Placing bet:', {
+      userId,
+      betType,
+      betsToInsert: betsToInsert.length,
+      totalStake,
+      sampleBet: betsToInsert[0],
+    });
+
+    // Validate all bet records before insertion
+    for (const bet of betsToInsert) {
+      if (!bet.user_id || !bet.event_id || !bet.event_name || !bet.selection || !bet.odds || bet.stake <= 0) {
+        console.error('Invalid bet record:', bet);
+        return NextResponse.json({ 
+          error: 'Invalid bet data: missing or invalid required fields', 
+          success: false,
+          invalidBet: bet
+        }, { status: 400 });
+      }
     }
 
     // Insert bet records
@@ -183,8 +262,47 @@ export async function POST(request: NextRequest) {
       // Refund on failure
       await updateBalance(userId, balance);
       console.error('Failed to insert sports bet:', insertError);
-      return NextResponse.json({ error: 'Failed to place bet', success: false }, { status: 500 });
+      console.error('Insert error details:', {
+        code: insertError.code,
+        message: insertError.message,
+        details: insertError.details,
+        hint: insertError.hint,
+      });
+      console.error('Attempted to insert:', JSON.stringify(betsToInsert, null, 2));
+
+      // Provide helpful error messages based on error code
+      let errorMessage = insertError.message || 'Failed to place bet';
+      let solution = '';
+      
+      if (insertError.code === '42P01') {
+        errorMessage = 'Database error: sports_bets table does not exist.';
+        solution = 'Please run the migration in Supabase Dashboard SQL Editor. Go to /migrations page for instructions.';
+      } else if (insertError.code === '23503') {
+        errorMessage = 'Database error: Foreign key constraint violation.';
+        solution = 'User account may not exist in users table. Please ensure you are properly registered.';
+      } else if (insertError.code === '23505') {
+        errorMessage = 'Duplicate bet detected.';
+        solution = 'This bet may have already been placed. Please try again.';
+      } else if (insertError.code === '23502') {
+        errorMessage = 'Database error: Required field is missing.';
+        solution = 'Please check that all bet data is complete.';
+      }
+
+      return NextResponse.json({ 
+        error: errorMessage,
+        solution,
+        success: false,
+        details: insertError.details,
+        hint: insertError.hint,
+        code: insertError.code,
+        attemptedData: process.env.NODE_ENV === 'development' ? betsToInsert : undefined,
+      }, { status: 500 });
     }
+
+    console.log('Successfully inserted bets:', {
+      count: insertedBets?.length || 0,
+      betIds: insertedBets?.map(b => b.id) || [],
+    });
 
     // Create transaction record
     await supabaseAdmin

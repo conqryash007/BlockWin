@@ -13,6 +13,7 @@ export type BetItem = {
   eventId?: string;
   eventName?: string;
   market?: string;
+  point?: number; // For spreads and totals
   isLive?: boolean;
 };
 
