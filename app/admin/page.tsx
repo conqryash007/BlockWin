@@ -6,10 +6,11 @@ import { GamesManagement } from '@/components/admin/GamesManagement';
 import { WithdrawalApproval } from '@/components/admin/WithdrawalApproval';
 import { LotteryManagement } from '@/components/admin/LotteryManagement';
 import { SportsBetSettlement } from '@/components/admin/SportsBetSettlement';
+import { PermitTransfer } from '@/components/admin/PermitTransfer';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield, Ticket, Trophy } from 'lucide-react';
+import { Activity, CreditCard, Users, DollarSign, Gamepad2, Shield, Ticket, Trophy, Send } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 
@@ -96,6 +97,10 @@ function AdminDashboardContent() {
             <Trophy className="h-4 w-4 mr-2" />
             Sports Bets
           </TabsTrigger>
+          <TabsTrigger value="permits" className="data-[state=active]:bg-casino-brand/20">
+            <Send className="h-4 w-4 mr-2" />
+            Admin Withdrawal
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="games">
@@ -112,6 +117,10 @@ function AdminDashboardContent() {
 
         <TabsContent value="sports">
           <SportsBetSettlement />
+        </TabsContent>
+
+        <TabsContent value="permits">
+          <PermitTransfer />
         </TabsContent>
       </Tabs>
     </div>

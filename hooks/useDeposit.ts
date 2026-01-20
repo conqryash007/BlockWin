@@ -57,7 +57,7 @@ Timestamp: ${new Date().toISOString()}`;
     }
   }, [address, signMessageAsync]);
 
-  // Approve UNLIMITED token spending (one-time)
+  // Approve UNLIMITED token spending (one-time) - for USDT
   const approveUnlimited = useCallback(async (tokenAddress: `0x${string}`) => {
     if (!address) {
       toast.error('Please connect your wallet');
@@ -70,6 +70,31 @@ Timestamp: ${new Date().toISOString()}`;
         abi: CONTRACTS.ERC20.abi,
         functionName: 'approve',
         args: [CONTRACTS.CasinoDeposit.address, maxUint256],
+      });
+      
+      setApproveHash(hash);
+      toast.info('Approval submitted. Waiting for confirmation...');
+      return true;
+    } catch (error: any) {
+      console.error('Approval error:', error);
+      toast.error(error.shortMessage || error.message || 'Approval failed');
+      return false;
+    }
+  }, [address, writeContractAsync]);
+
+  // Approve EXACT amount token spending - for USDC/DAI
+  const approveExact = useCallback(async (tokenAddress: `0x${string}`, amount: bigint) => {
+    if (!address) {
+      toast.error('Please connect your wallet');
+      return false;
+    }
+
+    try {
+      const hash = await writeContractAsync({
+        address: tokenAddress,
+        abi: CONTRACTS.ERC20.abi,
+        functionName: 'approve',
+        args: [CONTRACTS.CasinoDeposit.address, amount],
       });
       
       setApproveHash(hash);
@@ -98,6 +123,7 @@ Timestamp: ${new Date().toISOString()}`;
         abi: CONTRACTS.CasinoDeposit.abi,
         functionName: 'deposit',
         args: [tokenAddress, amount],
+        gas: BigInt(300000), // Explicit gas limit to prevent estimation errors
       });
 
       setDepositHash(hash);
@@ -113,6 +139,7 @@ Timestamp: ${new Date().toISOString()}`;
   return {
     signTerms,
     approveUnlimited,
+    approveExact,
     deposit,
     isSigningMessage,
     isApproving: isPending || approvalConfirming,

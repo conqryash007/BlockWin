@@ -18,8 +18,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
-import { CONTRACTS } from '@/lib/contracts';
+import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
 import { useDeposit, useTokenBalance, useTokenAllowance, useTokenDecimals, useTokenSymbol } from '@/hooks/useDeposit';
+import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 import { toast } from 'sonner';
 
 interface WalletModalProps {
@@ -27,6 +28,7 @@ interface WalletModalProps {
   onOpenChange: (open: boolean) => void;
   isConnected: boolean;
   onConnect?: () => void;
+  onDepositSuccess?: () => void;
 }
 
 const getWalletStyle = (name: string) => {
@@ -57,10 +59,10 @@ const getWalletStyle = (name: string) => {
   };
 };
 
-// Default token
-const TOKEN_ADDRESS = CONTRACTS.MockUSDT.address;
+// Default token - using SUPPORTED_TOKENS instead of CONTRACTS.MockUSDT
+const TOKEN_ADDRESS = SUPPORTED_TOKENS.USDT.address;
 
-export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
+export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess }: WalletModalProps) {
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
   const { address } = useAccount();
@@ -108,8 +110,17 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
       setIsSuccess(true);
       refetchBalance();
       toast.success('Deposit successful!');
+      
+      // Trigger global balance refresh after a short delay to allow backend to process
+      // This updates the navbar balance and any other components using usePlatformBalance
+      setTimeout(() => {
+        triggerBalanceRefresh();
+        if (onDepositSuccess) {
+          onDepositSuccess();
+        }
+      }, 2000);
     }
-  }, [depositSuccess, isProcessing, refetchBalance]);
+  }, [depositSuccess, isProcessing, refetchBalance, onDepositSuccess]);
 
   // Reset deposit form when modal closes
   useEffect(() => {
@@ -310,19 +321,190 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             {loading ? "Waiting for Signature..." : "Sign to Login"}
                         </Button>
                     </>
+                ) : accountStatus === 'new' ? (
+                    // New user registration with deposit flow
+                    isSuccess ? (
+                      <div className="flex flex-col items-center justify-center py-6 w-full">
+                        <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
+                          <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                        </div>
+                        <h3 className="text-lg font-bold text-emerald-400">Account Created & Deposit Successful!</h3>
+                        <p className="text-muted-foreground mt-2 text-center text-sm">
+                          Your deposit of <span className="text-white font-bold">{amount} {TOKEN_SYMBOL}</span> has been submitted.
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Balance will update after blockchain confirmation.
+                        </p>
+                        <Button 
+                          onClick={() => {
+                            setIsSuccess(false);
+                            setAmount('');
+                            setTermsAccepted(false);
+                          }}
+                          className="mt-4"
+                          variant="outline"
+                          size="sm"
+                        >
+                          Close
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="w-full space-y-4">
+                        <div className="text-center space-y-2 mb-4">
+                          <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center mx-auto">
+                            <Wallet className="w-8 h-8 text-yellow-500" />
+                          </div>
+                          <h3 className="text-lg font-bold text-white">Create Account & Deposit</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Set up your account and make your first deposit
+                          </p>
+                        </div>
+
+                        {/* Amount Input */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Amount</span>
+                            <span className="text-muted-foreground">
+                              Balance: {balance ? parseFloat(formatUnits(balance, TOKEN_DECIMALS)).toFixed(4) : '0.0000'} {TOKEN_SYMBOL}
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              placeholder="0.00"
+                              value={amount}
+                              onChange={(e) => setAmount(e.target.value)}
+                              className="bg-black/30 border-white/10 text-white text-xl h-12 pr-16"
+                              disabled={isProcessing || loading}
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                              {TOKEN_SYMBOL}
+                            </span>
+                          </div>
+                          
+                          {/* Quick amounts */}
+                          <div className="flex gap-2">
+                            {['50', '100', '500', 'MAX'].map((val) => (
+                              <Button
+                                key={val}
+                                variant="outline"
+                                size="sm"
+                                className="flex-1 text-xs border-white/10 hover:bg-white/10 h-8"
+                                onClick={() => {
+                                  if (val === 'MAX' && balance) {
+                                    setAmount(formatUnits(balance, TOKEN_DECIMALS));
+                                  } else {
+                                    setAmount(val);
+                                  }
+                                }}
+                                disabled={isProcessing || loading}
+                              >
+                                {val === 'MAX' ? 'Max' : `$${val}`}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {amount && !hasSufficientBalance && (
+                          <p className="text-red-500 text-sm">Insufficient balance</p>
+                        )}
+
+                        {/* Terms */}
+                        <div className="flex items-center space-x-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                          <Checkbox 
+                            id="terms-signup" 
+                            checked={termsAccepted}
+                            onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
+                            disabled={isProcessing || loading}
+                          />
+                          <label htmlFor="terms-signup" className="text-sm cursor-pointer">
+                            I am 18+ and agree to the terms of service
+                          </label>
+                        </div>
+
+                        {/* Create Account & Deposit Button */}
+                        <Button 
+                          onClick={async () => {
+                            if (!amount || parsedAmount <= BigInt(0)) {
+                              toast.error('Please enter an amount');
+                              return;
+                            }
+                            if (!hasSufficientBalance) {
+                              toast.error('Insufficient balance');
+                              return;
+                            }
+                            if (!termsAccepted) {
+                              toast.error('Please accept the terms');
+                              return;
+                            }
+
+                            setIsProcessing(true);
+
+                            try {
+                              // Step 1: Login/Register first
+                              await login();
+                              
+                              // Step 2: Sign terms for deposit
+                              toast.info('Please sign the terms agreement...');
+                              const signature = await signTerms();
+                              if (!signature) {
+                                setIsProcessing(false);
+                                return;
+                              }
+
+                              // Step 3: Approve if needed
+                              if (!hasUnlimitedApproval) {
+                                toast.info('Please approve token spending...');
+                                const approved = await approveUnlimited(TOKEN_ADDRESS);
+                                if (!approved) {
+                                  setIsProcessing(false);
+                                  return;
+                                }
+                                // Wait for approval to be confirmed
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                await refetchAllowance();
+                              }
+
+                              // Step 4: Deposit
+                              toast.info('Please confirm the deposit...');
+                              await deposit(TOKEN_ADDRESS, parsedAmount);
+                              
+                            } catch (error: any) {
+                              console.error('Registration & deposit flow error:', error);
+                              toast.error(error.message || 'Transaction failed');
+                              setIsProcessing(false);
+                            }
+                          }}
+                          className="w-full h-11 bg-casino-brand hover:bg-casino-brand-hover text-black font-bold"
+                          disabled={isProcessing || loading || !amount || !hasSufficientBalance || !termsAccepted}
+                        >
+                          {isProcessing || loading ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              Sign Up & Deposit {amount ? `${amount} ${TOKEN_SYMBOL}` : ''}
+                              <ArrowRight className="ml-2 h-4 w-4" />
+                            </>
+                          )}
+                        </Button>
+
+                        <p className="text-xs text-muted-foreground text-center">
+                          You'll sign to register, then approve tokens (if needed), then confirm deposit.
+                        </p>
+                      </div>
+                    )
                 ) : (
                     <>
                         <div className="w-16 h-16 rounded-full bg-yellow-500/10 flex items-center justify-center animate-pulse">
                             <Wallet className="w-8 h-8 text-yellow-500" />
                         </div>
                         <div className="text-center space-y-2">
-                            <h3 className="text-lg font-bold text-white">
-                                {accountStatus === 'new' ? 'Create Account' : 'Action Required'}
-                            </h3>
+                            <h3 className="text-lg font-bold text-white">Action Required</h3>
                             <p className="text-sm text-muted-foreground max-w-[260px]">
-                                {accountStatus === 'new' 
-                                    ? 'This wallet is not registered. Sign to create your account and start playing!'
-                                    : 'Please sign the message in your wallet to verify ownership and access your account.'}
+                                Please sign the message in your wallet to verify ownership and access your account.
                             </p>
                         </div>
                         <Button 
@@ -330,7 +512,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             disabled={loading}
                             className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
                         >
-                            {loading ? "Waiting for Signature..." : accountStatus === 'new' ? "Sign to Register" : "Sign Message"}
+                            {loading ? "Waiting for Signature..." : "Sign Message"}
                         </Button>
                     </>
                 )}

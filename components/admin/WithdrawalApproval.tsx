@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { supabase } from '@/lib/supabase';
-import { CONTRACTS } from '@/lib/contracts';
+import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -113,13 +113,13 @@ export function WithdrawalApproval() {
     }
 
     try {
-      const amountInWei = parseUnits(user.approvalAmount, CONTRACTS.MockUSDT.decimals);
+      const amountInWei = parseUnits(user.approvalAmount, SUPPORTED_TOKENS.USDT.decimals);
       
       writeContract({
         address: CONTRACTS.CasinoDeposit.address,
         abi: CONTRACTS.CasinoDeposit.abi,
         functionName: 'approveWithdrawal',
-        args: [user.wallet_address as `0x${string}`, CONTRACTS.MockUSDT.address, amountInWei],
+        args: [user.wallet_address as `0x${string}`, SUPPORTED_TOKENS.USDT.address, amountInWei],
       });
     } catch (err) {
       console.error('Approval error:', err);
@@ -142,13 +142,13 @@ export function WithdrawalApproval() {
 
     try {
       const addresses = selectedUsers.map(u => u.wallet_address as `0x${string}`);
-      const amounts = selectedUsers.map(u => parseUnits(u.approvalAmount, CONTRACTS.MockUSDT.decimals));
+      const amounts = selectedUsers.map(u => parseUnits(u.approvalAmount, SUPPORTED_TOKENS.USDT.decimals));
       
       writeContract({
         address: CONTRACTS.CasinoDeposit.address,
         abi: CONTRACTS.CasinoDeposit.abi,
         functionName: 'batchApproveWithdrawals',
-        args: [CONTRACTS.MockUSDT.address, addresses, amounts],
+        args: [SUPPORTED_TOKENS.USDT.address, addresses, amounts],
       });
     } catch (err) {
       console.error('Batch approval error:', err);
