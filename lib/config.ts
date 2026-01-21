@@ -48,12 +48,21 @@ export const SEPOLIA_RPC_URL_EXPORT = SEPOLIA_RPC_URL;
 
 export const projectId = '8409c5ec71253f99c76c781324b10720'
 
+// Get the app URL dynamically for WalletConnect metadata
+const getAppUrl = () => {
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  // Fallback for SSR - use production URL
+  return process.env.NEXT_PUBLIC_APP_URL || 'https://blockwin.space';
+};
+
 // WalletConnect metadata for mobile wallet display
 const metadata = {
   name: 'BlockWin Casino',
   description: 'BlockWin - Web3 Casino Platform',
-  url: 'https://blockwin.netlify.app',
-  icons: ['https://blockwin.netlify.app/logo.png'],
+  url: getAppUrl(),
+  icons: ['https://blockwin.space/logo.png'],
 }
 
 // ============================================
