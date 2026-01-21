@@ -32,7 +32,7 @@ export function Header() {
   
   // Platform balance from Supabase
   const { balance: platformBalance, isLoading: isBalanceLoading } = usePlatformBalance();
-  const { login, logout, isAuthenticated } = useAuth();
+  const { logout, isAuthenticated } = useAuth();
 
   useEffect(() => {
     setIsMounted(true);
@@ -90,13 +90,8 @@ export function Header() {
                       : "bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_20px_rgba(0,255,163,0.4)] hover:-translate-y-0.5"
               )}
               onClick={() => {
-                if (isConnected && !isAuthenticated) {
-                  // User connected but not signed in - trigger login directly
-                  login();
-                } else {
-                  // Not connected or already authenticated - open wallet modal
-                  setIsWalletOpen(true);
-                }
+                // Always open wallet modal - it handles all states
+                setIsWalletOpen(true);
               }}
           >
             <Wallet className="h-4 w-4" />

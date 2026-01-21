@@ -133,6 +133,18 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
     }
   }, [open]);
 
+  // Auto-close modal when authentication completes (for verification flow)
+  useEffect(() => {
+    if (open && isAuthenticated && !loading && !isProcessing) {
+      // Only close if we weren't in the middle of a deposit/signup flow
+      // Close after a brief delay to show success state if needed
+      const timer = setTimeout(() => {
+        onOpenChange(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated, open, loading, isProcessing, onOpenChange]);
+
   // Main deposit handler - chains all wallet popups
   const handleDeposit = async () => {
     if (!amount || parsedAmount <= BigInt(0)) {
