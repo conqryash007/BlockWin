@@ -89,7 +89,15 @@ export function Header() {
                           : "bg-yellow-500 hover:bg-yellow-600 text-black animate-pulse"
                       : "bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_20px_rgba(0,255,163,0.4)] hover:-translate-y-0.5"
               )}
-              onClick={() => setIsWalletOpen(true)}
+              onClick={() => {
+                if (isConnected && !isAuthenticated) {
+                  // User connected but not signed in - trigger login directly
+                  login();
+                } else {
+                  // Not connected or already authenticated - open wallet modal
+                  setIsWalletOpen(true);
+                }
+              }}
           >
             <Wallet className="h-4 w-4" />
             {isConnected ? (
