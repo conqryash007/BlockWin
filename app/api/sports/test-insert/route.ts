@@ -129,11 +129,6 @@ CREATE INDEX IF NOT EXISTS idx_sports_bets_created_at ON sports_bets(created_at 
     });
 
     if (insertError) {
-      // Clean up: try to delete the test bet if it was partially created
-      if (insertedBet?.id) {
-        await supabaseAdmin.from('sports_bets').delete().eq('id', insertedBet.id);
-      }
-
       return NextResponse.json({
         ...diagnostics,
         error: 'Test bet insertion failed',
