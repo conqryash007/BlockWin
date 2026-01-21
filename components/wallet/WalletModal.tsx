@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, Wallet, Smartphone, Globe, ChevronRight, LogOut, Loader2, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useConnect, useDisconnect, useAccount, useChainId, useSwitchChain } from "wagmi";
-import { sepolia } from "wagmi/chains";
+import { getActiveChain, getNetworkName } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -71,7 +71,8 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
   // Check if user is on wrong network
-  const isWrongNetwork = isConnected && chainId !== sepolia.id;
+  const activeChain = getActiveChain();
+  const isWrongNetwork = isConnected && chainId !== activeChain.id;
   
   // Deposit state
   const [amount, setAmount] = useState('');
@@ -267,11 +268,11 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                 <div className="text-center space-y-2">
                     <h3 className="text-lg font-bold text-white">Wrong Network</h3>
                     <p className="text-sm text-muted-foreground max-w-[260px]">
-                        Please switch to the Sepolia test network to continue.
+                        Please switch to the {getNetworkName()} network to continue.
                     </p>
                 </div>
                 <Button 
-                    onClick={() => switchChain({ chainId: sepolia.id })}
+                    onClick={() => switchChain({ chainId: activeChain.id })}
                     disabled={isSwitchingChain}
                     className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold max-w-[200px]"
                 >
@@ -281,7 +282,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                             Switching...
                         </>
                     ) : (
-                        "Switch to Sepolia"
+                        `Switch to ${getNetworkName()}`
                     )}
                 </Button>
                 <p className="text-xs text-muted-foreground text-center max-w-[260px]">

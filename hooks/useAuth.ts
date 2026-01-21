@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
+import { getActiveChain, getNetworkName } from '@/lib/config';
 import { createClient } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -151,17 +151,18 @@ export function useAuth() {
         }
       }
 
-      // 2. Ensure we're on the correct chain (Sepolia)
-      if (chainId !== sepolia.id) {
-        console.log('Current chain:', chainId, 'Switching to Sepolia...');
+      // 2. Ensure we're on the correct chain
+      const activeChain = getActiveChain();
+      if (chainId !== activeChain.id) {
+        console.log('Current chain:', chainId, `Switching to ${getNetworkName()}...`);
         try {
-          toast.info('Switching to Sepolia network...');
-          await switchChainAsync({ chainId: sepolia.id });
+          toast.info(`Switching to ${getNetworkName()} network...`);
+          await switchChainAsync({ chainId: activeChain.id });
           // Give mobile wallets a moment to update
           await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (switchError: any) {
           console.error('Chain switch error:', switchError);
-          toast.error('Please switch to Sepolia network in your wallet and try again');
+          toast.error(`Please switch to ${getNetworkName()} network in your wallet and try again`);
           setLoading(false);
           return;
         }
@@ -182,7 +183,7 @@ export function useAuth() {
             signError?.message?.toLowerCase()?.includes('chain') ||
             signError?.shortMessage?.includes('Chain not configured') ||
             signError?.message?.includes('unsupported')) {
-          toast.error('Please switch to Sepolia network in your wallet and try again');
+          toast.error(`Please switch to ${getNetworkName()} network in your wallet and try again`);
           setLoading(false);
           return;
         }
@@ -237,7 +238,7 @@ export function useAuth() {
       // Check for chain-related errors at the top level too
       if (err?.message?.includes('Chain not configured') ||
           err?.message?.includes('chain mismatch')) {
-        toast.error('Please switch to Sepolia network in your wallet and try again');
+        toast.error(`Please switch to ${getNetworkName()} network in your wallet and try again`);
       } else {
         toast.error(typeof err === 'object' ? (err.message || JSON.stringify(err)) : 'Login failed');
       }
