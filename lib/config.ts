@@ -46,7 +46,7 @@ export const SEPOLIA_RPC_URL_EXPORT = SEPOLIA_RPC_URL;
 // WalletConnect Configuration
 // ============================================
 
-export const projectId = '8409c5ec71253f99c76c781324b10720'
+export const projectId = 'b4c9b9c116c4403cdf65244eaffe6d91'
 
 // Get the app URL dynamically for WalletConnect metadata
 const getAppUrl = () => {
