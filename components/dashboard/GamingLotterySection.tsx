@@ -169,7 +169,7 @@ function LiveLotteryRoomCard({ room, index }: { room: RoomWithPlayers; index: nu
                 </div>
                 <div>
                   <h4 className="text-base font-bold text-white group-hover:text-yellow-400 transition-colors">
-                    Room #{room.roomId.toString()}
+                    {room.name || `Room #${room.roomId.slice(0, 8)}`}
                   </h4>
                   <p className="text-xs text-muted-foreground">{payoutLabel}</p>
                 </div>

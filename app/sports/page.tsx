@@ -13,6 +13,7 @@ import { SPORT_CATEGORIES } from "@/lib/mockSportsData";
 import { isEventLive } from "@/lib/oddsUtils";
 import { LivePlayerActivityFeed } from "@/components/dashboard/LivePlayerActivityFeed";
 import { MySportsBets } from "@/components/sports/MySportsBets";
+import { LiveVideoFeed } from "@/components/sports/LiveVideoFeed";
 
 export default function SportsPage() {
   // Start with no sport selected to avoid unnecessary API calls (0 credits on load)
@@ -81,6 +82,13 @@ export default function SportsPage() {
 
       {/* Main Events Strip */}
       <MainEventsStrip showFeaturedCard={true} />
+
+      {/* Football Video Highlights - ScoreBat Integration */}
+      <LiveVideoFeed 
+        title="Football Video Highlights" 
+        limit={8} 
+        showRefresh={true} 
+      />
 
       {/* Sport Category Pills */}
       <div className="flex flex-wrap gap-2">

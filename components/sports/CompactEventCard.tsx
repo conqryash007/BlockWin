@@ -1,12 +1,12 @@
 "use client";
 
 import { FeaturedEvent } from "@/types/sports";
-import { useBetslip } from "@/hooks/useBetslip";
 import { formatEventTime, isEventLive, formatOdds } from "@/lib/oddsUtils";
 import { useOddsFormat } from "@/hooks/useSportsData";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { TeamLogo } from "./TeamLogo";
 
 interface CompactEventCardProps {
@@ -15,27 +15,17 @@ interface CompactEventCardProps {
 }
 
 export function CompactEventCard({ event, className }: CompactEventCardProps) {
-  const { addItem } = useBetslip();
   const { format } = useOddsFormat();
+  const router = useRouter();
   const isLive = isEventLive(event.commence_time, event.completed);
 
   const handleQuickBet = () => {
-    if (!event.bestOdds) return;
-    
-    // Quick bet defaults to home team
-    addItem({
-      id: `${event.id}-home`,
-      name: `${event.home_team} to win`,
-      eventId: event.id,
-      eventName: `${event.home_team} vs ${event.away_team}`,
-      odds: event.bestOdds.home,
-      market: "h2h",
-      isLive,
-    });
+    // Navigate to sports page
+    router.push('/sports');
   };
 
   return (
-    <Link href={`/sports/event/${event.id}`}>
+    <Link href={`/sports/event/${event.id}?sport=${event.sport_key}`}>
       <div
         className={cn(
           "group relative flex items-center gap-4 p-4 rounded-xl",

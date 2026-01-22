@@ -13,3 +13,8 @@ export { SportsBetSlip } from './SportsBetSlip';
 export { SportsEducation } from './SportsEducation';
 export { TeamLogo, usePrefetchTeamLogos } from './TeamLogo';
 export { LeagueBanner, LeagueBadge } from './LeagueBanner';
+
+// Video Components - ScoreBat Integration
+export { VideoPlayer, VideoThumbnail } from './VideoPlayer';
+export { LiveVideoFeed } from './LiveVideoFeed';
+export { MatchHighlights, CompactMatchHighlights } from './MatchHighlights';

@@ -147,7 +147,7 @@ export function HeroSection({ slides, featuredGames = [], className }: HeroSecti
               
               {/* CTAs */}
               <div className="flex items-center gap-3 pt-2">
-                <Link href={currentSlide.eventId ? `/sports/event/${currentSlide.eventId}` : '/sports'}>
+                <Link href="/sports">
                   <Button 
                     size="lg" 
                     className={cn(
@@ -162,7 +162,7 @@ export function HeroSection({ slides, featuredGames = [], className }: HeroSecti
                 </Link>
                 
                 {currentSlide.secondaryCta && (
-                  <Link href={currentSlide.streamUrl || `/sports/event/${currentSlide.eventId}`}>
+                  <Link href="/sports">
                     <Button 
                       size="lg" 
                       variant="outline"

@@ -4,6 +4,7 @@ import "@/styles/globals.css";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { BetslipProvider } from "@/hooks/useBetslip";
 import { BetslipDrawer } from "@/components/betslip/BetslipDrawer";
 import { Providers } from "./providers";
@@ -46,11 +47,12 @@ export default async function RootLayout({
                 <Sidebar />
                 <div className="flex flex-col flex-1 overflow-hidden">
                     <Header />
-                    <main className="flex-1 overflow-y-auto bg-background p-4 md:p-6 lg:p-8">
+                    <main className="flex-1 overflow-y-auto bg-background p-4 pb-20 md:p-6 lg:p-8 lg:pb-8">
                         <div className="mx-auto max-w-[1440px]">
                             {children}
                         </div>
                     </main>
+                    <MobileBottomNav />
                     <BetslipDrawer />
                     <AgeDisclaimer />
                 </div>

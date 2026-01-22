@@ -183,3 +183,68 @@ export function getRateLimitStatus(): {
 export function resetRateLimitBackoff(): void {
   backoffUntil = null;
 }
+
+/**
+ * Featured sport to fetch for Main Events section
+ * OPTIMIZED: Only fetch from one soccer league to minimize API credits
+ * Cost: 1 market × 1 region = 1 credit per call
+ */
+const FEATURED_SPORT_KEY = 'soccer_epl'; // English Premier League (most popular)
+
+/**
+ * Fetch featured events for MainEventsStrip
+ * OPTIMIZED: Only fetches from one soccer league to save API credits
+ * Returns top 5 upcoming/live events
+ */
+export async function fetchFeaturedEvents(): Promise<ApiResponse<SportEvent[]>> {
+  try {
+    // Single API call - costs only 1 credit (1 market × 1 region)
+    const response = await fetchOdds(FEATURED_SPORT_KEY, {
+      regions: 'us',      // Single region
+      markets: 'h2h',     // Single market (head-to-head only)
+      oddsFormat: 'decimal',
+    });
+    
+    if (response.error) {
+      return {
+        data: null,
+        error: response.error,
+      };
+    }
+
+    if (!response.data || response.data.length === 0) {
+      return {
+        data: null,
+        error: 'No soccer events available at this time',
+      };
+    }
+
+    // Sort events: live first, then by commence time
+    const now = new Date();
+    const sortedEvents = response.data.sort((a, b) => {
+      const aTime = new Date(a.commence_time);
+      const bTime = new Date(b.commence_time);
+      const aIsLive = aTime <= now && !a.completed;
+      const bIsLive = bTime <= now && !b.completed;
+      
+      // Live events first
+      if (aIsLive && !bIsLive) return -1;
+      if (!aIsLive && bIsLive) return 1;
+      
+      // Then by commence time (soonest first)
+      return aTime.getTime() - bTime.getTime();
+    });
+
+    // Return top 5 events only
+    return {
+      data: sortedEvents.slice(0, 5),
+      error: null,
+      remainingRequests,
+    };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Failed to fetch events',
+    };
+  }
+}

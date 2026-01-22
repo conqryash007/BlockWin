@@ -17,6 +17,7 @@ import { isEventLive } from "@/lib/oddsUtils";
 import { cn } from "@/lib/utils";
 import { useEventOdds } from "@/hooks/useSportsData";
 import { SportEvent } from "@/types/sports";
+import { MatchHighlights } from "@/components/sports/MatchHighlights";
 
 export default function EventDetailPage() {
   const params = useParams();
@@ -138,6 +139,14 @@ export default function EventDetailPage() {
           
           {/* Markets */}
           <MarketsTabs event={event} />
+
+          {/* Video Highlights - ScoreBat Integration (Football/Soccer only) */}
+          {event.sport_key?.includes('soccer') && (
+            <MatchHighlights 
+              homeTeam={event.home_team} 
+              awayTeam={event.away_team} 
+            />
+          )}
         </div>
 
         {/* Right Column - Bet Slip (Desktop) */}

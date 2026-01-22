@@ -8,7 +8,6 @@ import * as api from '@/lib/sportsApi';
 import { 
   MOCK_SPORTS, 
   MOCK_EVENTS, 
-  MOCK_FEATURED_EVENTS, 
   MOCK_LIVE_SCORES,
   getEventsBySport,
   getLiveEvents,
@@ -166,25 +165,114 @@ export function useEvents(
 
 /**
  * Hook to fetch featured events for MainEventsStrip
+ * Fetches real data from The Odds API, prioritizes live events
  */
-export function useFeaturedEvents(useMock: boolean = true) {
+export function useFeaturedEvents() {
   const [events, setEvents] = useState<FeaturedEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const isMounted = useRef(true);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.fetchFeaturedEvents();
+      
+      if (!isMounted.current) return;
+
+      if (response.error) {
+        setError(response.error);
+        setEvents([]);
+      } else if (response.data && response.data.length > 0) {
+        // Transform SportEvent to FeaturedEvent
+        const now = new Date();
+        const featuredEvents: FeaturedEvent[] = response.data.map(event => {
+          const commenceTime = new Date(event.commence_time);
+          const isLive = commenceTime <= now && !event.completed;
+          
+          // Extract best odds from bookmakers
+          let bestOdds: FeaturedEvent['bestOdds'] | undefined;
+          if (event.bookmakers && event.bookmakers.length > 0) {
+            const bookmaker = event.bookmakers[0];
+            const h2hMarket = bookmaker.markets?.find(m => m.key === 'h2h');
+            if (h2hMarket && h2hMarket.outcomes) {
+              const homeOdds = h2hMarket.outcomes.find(o => o.name === event.home_team)?.price;
+              const awayOdds = h2hMarket.outcomes.find(o => o.name === event.away_team)?.price;
+              const drawOdds = h2hMarket.outcomes.find(o => o.name === 'Draw')?.price;
+              
+              if (homeOdds && awayOdds) {
+                bestOdds = {
+                  home: homeOdds,
+                  away: awayOdds,
+                  draw: drawOdds,
+                  bookmaker: bookmaker.title,
+                };
+              }
+            }
+          }
+
+          // Extract live score if available
+          let liveScore: FeaturedEvent['liveScore'] | undefined;
+          if (isLive && event.scores && event.scores.length >= 2) {
+            const homeScore = event.scores.find(s => s.name === event.home_team);
+            const awayScore = event.scores.find(s => s.name === event.away_team);
+            if (homeScore && awayScore) {
+              liveScore = {
+                home: parseInt(homeScore.score, 10) || 0,
+                away: parseInt(awayScore.score, 10) || 0,
+                period: 'Live',
+                time: '',
+              };
+            }
+          }
+
+          return {
+            id: event.id,
+            sport_key: event.sport_key,
+            sport_title: event.sport_title,
+            commence_time: event.commence_time,
+            home_team: event.home_team,
+            away_team: event.away_team,
+            league: event.sport_title,
+            isFeatured: true,
+            bestOdds,
+            liveScore,
+          };
+        });
+
+        setEvents(featuredEvents);
+      } else {
+        setError('No events available at this time');
+        setEvents([]);
+      }
+    } catch (err) {
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch events');
+        setEvents([]);
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    if (useMock) {
-      setEvents(MOCK_FEATURED_EVENTS);
-      setIsLoading(false);
-      return;
-    }
+    isMounted.current = true;
+    fetchData();
 
-    // For live API, we would fetch from multiple sports and select featured
-    // For now, use mock data
-    setEvents(MOCK_FEATURED_EVENTS);
-    setIsLoading(false);
-  }, [useMock]);
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchData]);
 
-  return { events, isLoading };
+  const refetch = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { events, isLoading, error, refetch };
 }
 
 /**

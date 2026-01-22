@@ -6,7 +6,7 @@ import { MainEventCard } from "./MainEventCard";
 import { usePrefetchTeamLogos } from "./TeamLogo";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
+import { Sparkles, ArrowRight, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
@@ -17,7 +17,7 @@ interface MainEventsStripProps {
 }
 
 export function MainEventsStrip({ showFeaturedCard = true, className }: MainEventsStripProps) {
-  const { events, isLoading } = useFeaturedEvents(true);
+  const { events, isLoading, error, refetch } = useFeaturedEvents();
 
   // Prefetch team logos for all visible events
   const teamNames = useMemo(() => {
@@ -35,8 +35,57 @@ export function MainEventsStrip({ showFeaturedCard = true, className }: MainEven
     );
   }
 
+  if (error) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        {/* Section Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1 rounded bg-casino-brand" />
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-casino-brand" />
+              <h2 className="text-xl font-bold text-white uppercase tracking-wide">
+                Main Events
+              </h2>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-8 gap-4 bg-white/5 rounded-xl border border-white/10">
+          <AlertCircle className="w-8 h-8 text-yellow-500" />
+          <p className="text-yellow-400 text-center max-w-md">{error}</p>
+          <Button variant="outline" size="sm" onClick={refetch} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (events.length === 0) {
-    return null;
+    return (
+      <div className={cn("space-y-4", className)}>
+        {/* Section Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1 rounded bg-casino-brand" />
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-casino-brand" />
+              <h2 className="text-xl font-bold text-white uppercase tracking-wide">
+                Main Events
+              </h2>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center py-8 gap-4 bg-white/5 rounded-xl border border-white/10">
+          <p className="text-muted-foreground">No events available at this time</p>
+          <Button variant="outline" size="sm" onClick={refetch} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   // First event for featured card, rest for strip

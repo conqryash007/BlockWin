@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ const BANNERS = [
     subtitle: "Get 300% up to $5,000",
     cta: "Claim Now",
     color: "from-green-500 to-emerald-700",
+    link: "/sports", // Link to sports page
   },
   {
     id: 2,
@@ -22,6 +24,7 @@ const BANNERS = [
     subtitle: "Weekly Cashback & Rewards",
     cta: "Join VIP",
     color: "from-yellow-500 to-amber-700",
+    link: "/sports", // Link to sports page
   },
   {
     id: 3,
@@ -30,6 +33,7 @@ const BANNERS = [
     subtitle: "Best Odds on Premier League",
     cta: "Bet Now",
     color: "from-blue-500 to-indigo-700",
+    link: "/sports", // Link to sports page
   },
 ];
 
@@ -70,13 +74,15 @@ export function Carousel() {
                         {banner.subtitle}
                      </p>
                      <div>
-                        <Button size="lg" className={cn(
-                            "font-bold text-sm sm:text-lg h-10 sm:h-14 px-6 sm:px-10 shadow-[0_0_20px_rgba(0,0,0,0.5)] border-0 transform transition-transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]", 
-                            "bg-gradient-to-r text-white",
-                            banner.color
-                        )}>
-                            {banner.cta}
-                        </Button>
+                        <Link href={banner.link}>
+                          <Button size="lg" className={cn(
+                              "font-bold text-sm sm:text-lg h-10 sm:h-14 px-6 sm:px-10 shadow-[0_0_20px_rgba(0,0,0,0.5)] border-0 transform transition-transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]", 
+                              "bg-gradient-to-r text-white",
+                              banner.color
+                          )}>
+                              {banner.cta}
+                          </Button>
+                        </Link>
                      </div>
                  </div>
              </div>
