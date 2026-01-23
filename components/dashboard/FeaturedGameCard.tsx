@@ -1,13 +1,10 @@
 "use client";
 
-import { useBetslip } from "@/hooks/useBetslip";
 import { FeaturedGame } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
 import { TeamLogo } from "@/components/sports/TeamLogo";
-import { Button } from "@/components/ui/button";
 import { TrendingUp, TrendingDown, Radio } from "lucide-react";
 import Link from "next/link";
-import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 interface FeaturedGameCardProps {
@@ -49,31 +46,7 @@ function MiniSparkline({ data }: { data?: number[] }) {
 }
 
 export function FeaturedGameCard({ game, className }: FeaturedGameCardProps) {
-  const { addItem } = useBetslip();
   const isLive = game.status === 'live';
-
-  const handleBet = (team: 'home' | 'away', e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const selection = team === 'home' ? game.home.name : game.away.name;
-    const odds = team === 'home' ? game.odds.home : game.odds.away;
-    
-    addItem({
-      id: `${game.eventId}-${team}`,
-      name: selection,
-      odds: odds,
-      eventId: game.eventId,
-      eventName: `${game.home.name} vs ${game.away.name}`,
-      market: 'h2h',
-      isLive: isLive,
-    });
-    
-    toast.success(`Added ${selection} @ ${odds.toFixed(2)}`, {
-      description: `${game.home.name} vs ${game.away.name}`,
-      duration: 2000,
-    });
-  };
 
   return (
     <motion.div
@@ -153,57 +126,11 @@ export function FeaturedGameCard({ game, className }: FeaturedGameCardProps) {
           </div>
 
           {/* Sparkline */}
-          <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/5">
+          <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
               Odds Movement
             </span>
             <MiniSparkline data={game.sparkline} />
-          </div>
-
-          {/* Odds Buttons */}
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-casino-brand/20 hover:border-casino-brand/30 hover:text-casino-brand font-mono text-sm font-bold transition-all duration-200"
-              onClick={(e) => handleBet('home', e)}
-            >
-              {game.odds.home.toFixed(2)}
-            </Button>
-            {game.odds.draw !== undefined && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-casino-brand/20 hover:border-casino-brand/30 hover:text-casino-brand font-mono text-sm font-bold col-span-2 transition-all duration-200"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  addItem({
-                    id: `${game.eventId}-draw`,
-                    name: 'Draw',
-                    odds: game.odds.draw!,
-                    eventId: game.eventId,
-                    eventName: `${game.home.name} vs ${game.away.name}`,
-                    market: 'h2h',
-                    isLive: isLive,
-                  });
-                  toast.success(`Added Draw @ ${game.odds.draw!.toFixed(2)}`);
-                }}
-              >
-                X {game.odds.draw.toFixed(2)}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className={cn(
-                "h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-casino-brand/20 hover:border-casino-brand/30 hover:text-casino-brand font-mono text-sm font-bold transition-all duration-200",
-                game.odds.draw === undefined && "col-span-1"
-              )}
-              onClick={(e) => handleBet('away', e)}
-            >
-              {game.odds.away.toFixed(2)}
-            </Button>
           </div>
           </div> {/* End of relative z-10 wrapper */}
         </div>

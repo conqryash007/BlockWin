@@ -155,6 +155,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
 
   // Note: Modal stays open after authentication to allow immediate deposit.
   // User can close it manually or proceed to deposit.
+  // Auto-login is now handled in useAuth hook globally, so no need for it here.
 
   // Main deposit handler - chains all wallet popups
   const handleDeposit = async () => {
@@ -250,7 +251,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                                key={connector.uid}
                                onClick={() => {
                                    connect({ connector });
-                                   onOpenChange(false);
+                                   // Keep modal open - auth flow continues automatically
                                }}
                                className={cn(
                                    "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",

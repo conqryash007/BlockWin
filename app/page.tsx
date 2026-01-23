@@ -3,10 +3,8 @@ import {
   QuickActionsColumn,
   FeaturedGamesCarousel,
   ShortcutsGrid,
-  LiveQuickBets,
   InsightsCards,
   DashboardFooter,
-  BetslipPreview,
   GamingLotterySection,
   LivePlayerActivityFeed,
 } from "@/components/dashboard";
@@ -43,18 +41,8 @@ export default function Home() {
         {/* Row 4: Live Player Activity Feed */}
         <LivePlayerActivityFeed filter="all" title="Live Players" maxItems={6} />
 
-        {/* Row 5: Shortcuts Grid + Live Quick Bets */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Shortcuts Grid - 2/3 width */}
-          <div className="lg:col-span-2">
-            <ShortcutsGrid ctas={data.quickCtas} />
-          </div>
-          
-          {/* Live Quick Bets - 1/3 width */}
-          <div>
-            <LiveQuickBets bets={data.quickBets} />
-          </div>
-        </div>
+        {/* Row 5: Shortcuts Grid */}
+        <ShortcutsGrid ctas={data.quickCtas} />
 
         {/* Row 5: Insights Cards */}
         <InsightsCards 
@@ -71,9 +59,6 @@ export default function Home() {
         <DashboardFooter />
       </div>
 
-      {/* Betslip Preview - Sticky widget */}
-      <BetslipPreview />
-      
       {/* Toast notifications */}
       <Toaster 
         position="top-right" 
