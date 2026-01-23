@@ -239,7 +239,7 @@ export async function fetchFeaturedEvents(): Promise<ApiResponse<SportEvent[]>> 
     return {
       data: sortedEvents.slice(0, 5),
       error: null,
-      remainingRequests,
+      remainingRequests: remainingRequests ?? undefined,
     };
   } catch (err) {
     return {
