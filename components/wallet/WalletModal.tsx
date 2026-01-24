@@ -8,20 +8,17 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, Wallet, Smartphone, Globe, ChevronRight, LogOut, Loader2, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useConnect, useDisconnect, useAccount, useChainId, useSwitchChain } from "wagmi";
 import { getActiveChain, getNetworkName } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
-import { parseUnits, formatUnits, maxUint256 } from 'viem';
-import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
-import { useDeposit, useTokenBalance, useTokenAllowance, useTokenDecimals, useTokenSymbol } from '@/hooks/useDeposit';
+import { CONTRACTS } from '@/lib/contracts';
+import { useDeposit } from '@/hooks/useDeposit';
 import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 import { toast } from 'sonner';
+import { DepositForm } from './DepositForm';
 
 interface WalletModalProps {
   open: boolean;
@@ -59,8 +56,7 @@ const getWalletStyle = (name: string) => {
   };
 };
 
-// Default token - using SUPPORTED_TOKENS instead of CONTRACTS.MockUSDT
-const TOKEN_ADDRESS = SUPPORTED_TOKENS.USDT.address;
+
 
 export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess }: WalletModalProps) {
   const { connectors, connect } = useConnect();
@@ -158,54 +154,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
   // Auto-login is now handled in useAuth hook globally, so no need for it here.
 
   // Main deposit handler - chains all wallet popups
-  const handleDeposit = async () => {
-    if (!amount || parsedAmount <= BigInt(0)) {
-      toast.error('Please enter an amount');
-      return;
-    }
-    if (!hasSufficientBalance) {
-      toast.error('Insufficient balance');
-      return;
-    }
-    if (!termsAccepted) {
-      toast.error('Please accept the terms');
-      return;
-    }
 
-    setIsProcessing(true);
-
-    try {
-      // Step 1: Sign terms
-      toast.info('Please sign the terms agreement...');
-      const signature = await signTerms();
-      if (!signature) {
-        setIsProcessing(false);
-        return;
-      }
-
-      // Step 2: Approve if needed
-      if (!hasUnlimitedApproval) {
-        toast.info('Please approve token spending...');
-        const approved = await approveUnlimited(TOKEN_ADDRESS);
-        if (!approved) {
-          setIsProcessing(false);
-          return;
-        }
-        // Wait for approval to be confirmed
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await refetchAllowance();
-      }
-
-      // Step 3: Deposit
-      toast.info('Please confirm the deposit...');
-      await deposit(TOKEN_ADDRESS, parsedAmount);
-      
-    } catch (error: any) {
-      console.error('Deposit flow error:', error);
-      toast.error(error.message || 'Transaction failed');
-      setIsProcessing(false);
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -402,113 +351,17 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                     </TabsList>
 
                     <TabsContent value="deposit" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
-                      {isSuccess ? (
-                        <div className="flex flex-col items-center justify-center py-6">
-                          <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
-                            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-                          </div>
-                          <h3 className="text-lg font-bold text-emerald-400">Deposit Successful!</h3>
-                          <p className="text-muted-foreground mt-2 text-center text-sm">
-                            Your deposit of <span className="text-white font-bold">{amount} {TOKEN_SYMBOL}</span> has been submitted.
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Balance will update after blockchain confirmation.
-                          </p>
-                          <div className="mt-4 flex flex-col items-center gap-2">
-                            <div className="w-12 h-12 rounded-full bg-casino-brand/20 flex items-center justify-center border-2 border-casino-brand">
-                              <span className="text-xl font-bold text-casino-brand">{countdown}</span>
-                            </div>
-                            <p className="text-sm text-muted-foreground">Page reloading in {countdown} second{countdown !== 1 ? 's' : ''}...</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {/* Amount Input */}
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-muted-foreground">Amount</span>
-                              <span className="text-muted-foreground">
-                                Balance: {balance ? parseFloat(formatUnits(balance, TOKEN_DECIMALS)).toFixed(4) : '0.0000'} {TOKEN_SYMBOL}
-                              </span>
-                            </div>
-                            <div className="relative">
-                              <Input
-                                type="number"
-                                placeholder="0.00"
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                className="bg-black/30 border-white/10 text-white text-xl h-12 pr-16"
-                                disabled={isProcessing}
-                              />
-                              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                                {TOKEN_SYMBOL}
-                              </span>
-                            </div>
-                            
-                            {/* Quick amounts */}
-                            <div className="flex gap-2">
-                              {['50', '100', '500', 'MAX'].map((val) => (
-                                <Button
-                                  key={val}
-                                  variant="outline"
-                                  size="sm"
-                                  className="flex-1 text-xs border-white/10 hover:bg-white/10 h-8"
-                                  onClick={() => {
-                                    if (val === 'MAX' && balance) {
-                                      setAmount(formatUnits(balance, TOKEN_DECIMALS));
-                                    } else {
-                                      setAmount(val);
-                                    }
-                                  }}
-                                  disabled={isProcessing}
-                                >
-                                  {val === 'MAX' ? 'Max' : `$${val}`}
-                                </Button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {amount && !hasSufficientBalance && (
-                            <p className="text-red-500 text-sm">Insufficient balance</p>
-                          )}
-
-                          {/* Terms */}
-                          <div className="flex items-center space-x-3 p-3 rounded-lg bg-white/5 border border-white/10">
-                            <Checkbox 
-                              id="terms-modal" 
-                              checked={termsAccepted}
-                              onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
-                              disabled={isProcessing}
-                            />
-                            <label htmlFor="terms-modal" className="text-sm cursor-pointer">
-                              I am 18+ and agree to the terms of service
-                            </label>
-                          </div>
-
-                          {/* Deposit Button */}
-                          <Button 
-                            onClick={handleDeposit}
-                            className="w-full h-11 bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
-                            disabled={isProcessing || !amount || !hasSufficientBalance || !termsAccepted}
-                          >
-                            {isProcessing ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Processing...
-                              </>
-                            ) : (
-                              <>
-                                Deposit {amount ? `${amount} ${TOKEN_SYMBOL}` : ''}
-                                <ArrowRight className="ml-2 h-4 w-4" />
-                              </>
-                            )}
-                          </Button>
-
-                          <p className="text-xs text-muted-foreground text-center">
-                            You'll be asked to sign terms, approve tokens (if needed), then confirm deposit.
-                          </p>
-                        </div>
-                      )}
+                    <TabsContent value="deposit" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
+                        <DepositForm 
+                            onSuccess={() => {
+                                // Trigger global balance refresh
+                                triggerBalanceRefresh();
+                                if (onDepositSuccess) {
+                                    onDepositSuccess();
+                                }
+                            }}
+                        />
+                    </TabsContent>
                     </TabsContent>
 
                     <TabsContent value="withdraw" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
