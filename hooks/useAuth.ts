@@ -55,18 +55,14 @@ export function useAuth() {
   // Check if user exists in the database
   const checkUserExists = useCallback(async (walletAddress: string): Promise<boolean> => {
     try {
-      // Use direct fetch with anon key to bypass JWT requirement
-      const response = await fetch(
-        'https://hvnyxvapeorjcxljtszc.supabase.co/functions/v1/check-user',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2bnl4dmFwZW9yamN4bGp0c3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NTgwOTMsImV4cCI6MjA4MzQzNDA5M30.LB0V84KAjIbD4Nh-asXuJH5r6qcY1Vc6dNTbzOfhfH8`,
-          },
-          body: JSON.stringify({ address: walletAddress }),
-        }
-      );
+      // Use local API route
+      const response = await fetch('/api/check-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ address: walletAddress }),
+      });
       
       if (!response.ok) {
         console.error('Error checking user:', response.status);
@@ -233,15 +229,18 @@ export function useAuth() {
 
       console.log("Sending auth request:", { address, signature, nonce });
 
-      // 4. Verify & Get Session via Edge Function
-      const { data, error } = await supabase.functions.invoke('auth-wallet', {
+      // 4. Verify & Get Session via Next.js API Route
+      const response = await fetch('/api/auth-wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address, signature, nonce }),
-        headers: { "Content-Type": "application/json" }
       });
-
-      if (error) {
-          console.error("Auth Wallet Error Payload:", error);
-          throw new Error(error.message || 'Failed to communicate with auth server');
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error("Auth Wallet Error Payload:", data);
+        throw new Error(data.error || 'Failed to communicate with auth server');
       }
       
       let newSession = null;

@@ -8,16 +8,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Copy, Wallet, Smartphone, Globe, ChevronRight, LogOut, Loader2, ArrowRight, CheckCircle2 } from "lucide-react";
-import { useConnect, useDisconnect, useAccount, useChainId, useSwitchChain } from "wagmi";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Wallet, Smartphone, Globe, ChevronRight, Loader2 } from "lucide-react";
+import { useConnect, useChainId, useSwitchChain } from "wagmi";
 import { getActiveChain, getNetworkName } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
-import { CONTRACTS } from '@/lib/contracts';
-import { useDeposit } from '@/hooks/useDeposit';
 import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
-import { toast } from 'sonner';
 import { DepositForm } from './DepositForm';
 
 interface WalletModalProps {
@@ -60,8 +58,6 @@ const getWalletStyle = (name: string) => {
 
 export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess }: WalletModalProps) {
   const { connectors, connect } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { address } = useAccount();
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
@@ -70,84 +66,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
   const activeChain = getActiveChain();
   const isWrongNetwork = isConnected && chainId !== activeChain.id;
   
-  // Deposit state
-  const [amount, setAmount] = useState('');
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [countdown, setCountdown] = useState(3);
-  
-  // Deposit hooks
-  const { 
-    signTerms,
-    approveUnlimited, 
-    deposit, 
-    depositSuccess,
-  } = useDeposit();
-  
-  const { balance, refetch: refetchBalance } = useTokenBalance(TOKEN_ADDRESS);
-  const { allowance, refetch: refetchAllowance } = useTokenAllowance(TOKEN_ADDRESS);
-  const { decimals: tokenDecimals } = useTokenDecimals(TOKEN_ADDRESS);
-  const { symbol: tokenSymbol } = useTokenSymbol(TOKEN_ADDRESS);
 
-  // Use fetched decimals or fallback to 18
-  const TOKEN_DECIMALS = tokenDecimals ?? 18;
-  const TOKEN_SYMBOL = tokenSymbol ?? 'USDT';
-
-  // Parse amount
-  const parsedAmount = amount ? parseUnits(amount, TOKEN_DECIMALS) : BigInt(0);
-  
-  // Check if already approved (unlimited)
-  const hasUnlimitedApproval = allowance !== undefined && allowance >= maxUint256 / BigInt(2);
-  const hasSufficientBalance = balance !== undefined && balance >= parsedAmount;
-
-  // Handle deposit success
-  useEffect(() => {
-    if (depositSuccess && isProcessing) {
-      setIsProcessing(false);
-      setIsSuccess(true);
-      refetchBalance();
-      toast.success('Deposit successful!');
-      
-      // Trigger global balance refresh after a short delay to allow backend to process
-      // This updates the navbar balance and any other components using usePlatformBalance
-      setTimeout(() => {
-        triggerBalanceRefresh();
-        if (onDepositSuccess) {
-          onDepositSuccess();
-        }
-      }, 2000);
-    }
-  }, [depositSuccess, isProcessing, refetchBalance, onDepositSuccess]);
-
-  // Reset deposit form when modal closes
-  useEffect(() => {
-    if (!open) {
-      setAmount('');
-      setTermsAccepted(false);
-      setIsProcessing(false);
-      setIsSuccess(false);
-      setCountdown(3);
-    }
-  }, [open]);
-
-  // Countdown timer after successful deposit
-  useEffect(() => {
-    if (isSuccess) {
-      setCountdown(3); // Reset countdown when success shows
-      const timer = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            window.location.reload();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [isSuccess]);
 
   // Note: Modal stays open after authentication to allow immediate deposit.
   // User can close it manually or proceed to deposit.
