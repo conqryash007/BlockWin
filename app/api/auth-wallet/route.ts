@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ethers } from 'ethers';
+import { verifyMessage } from 'viem';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import crypto from 'crypto';
 
@@ -23,10 +23,14 @@ export async function POST(request: NextRequest) {
     // 1. Verify Signature
     console.log(`Verifying for address: ${address}, nonce: ${nonce}`);
     const message = `Sign this message to login to BlockWin Casino. Nonce: ${nonce}`;
-    const recoveredAddress = ethers.verifyMessage(message, signature);
+    const isValidSignature = await verifyMessage({
+      address: address as `0x${string}`,
+      message,
+      signature: signature as `0x${string}`,
+    });
 
-    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
-      console.error(`Signature mismatch! Recovered: ${recoveredAddress}, Expected: ${address}`);
+    if (!isValidSignature) {
+      console.error(`Signature verification failed for address: ${address}`);
       throw new Error("Invalid signature");
     }
     console.log("Signature verified.");
