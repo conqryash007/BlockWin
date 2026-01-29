@@ -490,7 +490,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       console.log('HOOK_TRACE: Fetching contract at:', tokenAddress);
       
       // Log the node we are connected to
-      const currentHost = tronWeb.fullNode?.host || 'unknown';
+      const currentHost = (tronWeb as any).fullNode?.host || 'unknown';
       console.log('HOOK_TRACE: Connected to Tron Node:', currentHost);
       setActiveDebugAddress(activeAddress || 'None');
       
@@ -505,12 +505,12 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       let balance;
       try {
         // Standard TronWeb: methods are attached to contract object
-        if (typeof contract.balanceOf === 'function') {
-           balance = await contract.balanceOf(activeAddress).call();
+        if (typeof (contract as any).balanceOf === 'function') {
+           balance = await (contract as any).balanceOf(activeAddress).call();
         } 
         // Fallback: sometimes under .methods
-        else if (contract.methods && typeof contract.methods.balanceOf === 'function') {
-           balance = await contract.methods.balanceOf(activeAddress).call();
+        else if ((contract as any).methods && typeof (contract as any).methods.balanceOf === 'function') {
+           balance = await (contract as any).methods.balanceOf(activeAddress).call();
         } else {
            throw new Error('balanceOf method not found on contract object');
         }
