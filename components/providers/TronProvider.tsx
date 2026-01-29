@@ -26,6 +26,12 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
             },
             themeMode: 'dark',
             debug: true,
+            // Show "All Wallets" button to allow searching for any wallet
+            allWallets: 'SHOW',
+            // Pin Trust Wallet to top for convenience
+            featuredWalletIds: [
+                '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
+            ]
         });
 
         return [tronLink, trustWallet, walletConnect];
