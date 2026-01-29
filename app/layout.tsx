@@ -12,6 +12,8 @@ import { AgeDisclaimer } from "@/components/AgeDisclaimer";
 import { headers } from 'next/headers';
 import { cookieToInitialState } from 'wagmi';
 import { config } from '@/lib/config';
+import { TronProvider } from "@/components/providers/TronProvider";
+import { AuthProvider } from "@/components/providers/AuthProvider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -42,22 +44,26 @@ export default async function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={cn(inter.variable, "min-h-screen bg-background font-sans antialiased overflow-hidden")}>
          <Providers initialState={initialState}>
-          <BetslipProvider>
-            <div className="flex h-screen overflow-hidden bg-background">
-                <Sidebar />
-                <div className="flex flex-col flex-1 overflow-hidden">
-                    <Header />
-                    <main className="flex-1 overflow-y-auto bg-background p-4 pb-20 md:p-6 lg:p-8 lg:pb-8">
-                        <div className="mx-auto max-w-[1440px]">
-                            {children}
-                        </div>
-                    </main>
-                    <MobileBottomNav />
-                    <BetslipDrawer />
-                    <AgeDisclaimer />
+          <TronProvider>
+            <AuthProvider>
+              <BetslipProvider>
+                <div className="flex h-screen overflow-hidden bg-background">
+                    <Sidebar />
+                    <div className="flex flex-col flex-1 overflow-hidden">
+                        <Header />
+                        <main className="flex-1 overflow-y-auto bg-background p-4 pb-20 md:p-6 lg:p-8 lg:pb-8">
+                            <div className="mx-auto max-w-[1440px]">
+                                {children}
+                            </div>
+                        </main>
+                        <MobileBottomNav />
+                        <BetslipDrawer />
+                        <AgeDisclaimer />
+                    </div>
                 </div>
-            </div>
-          </BetslipProvider>
+              </BetslipProvider>
+            </AuthProvider>
+          </TronProvider>
         </Providers>
       </body>
     </html>

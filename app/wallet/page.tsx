@@ -388,7 +388,6 @@ export default function WalletPage() {
         open={walletModalOpen}
         onOpenChange={setWalletModalOpen}
         isConnected={isConnected}
-        onDepositSuccess={refetchStats}
       />
     </div>
   );

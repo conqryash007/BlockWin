@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
-import { SUPPORTED_TOKENS, TokenSymbol } from '@/lib/contracts';
+import { SUPPORTED_TOKENS, TRON_TOKENS, TokenSymbol } from '@/lib/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,22 +15,36 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
+import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 
 interface DepositFormProps {
+  selectedNetwork: 'ethereum' | 'tron' | null;
   onSuccess?: () => void;
   onClose?: () => void;
 }
 
-export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
-  const [selectedToken, setSelectedToken] = useState<TokenSymbol>('USDT');
+export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositFormProps) {
+  // Determine active tokens based on network
+  const activeTokens = useMemo(() => {
+    return selectedNetwork === 'tron' ? TRON_TOKENS : SUPPORTED_TOKENS;
+  }, [selectedNetwork]);
+
+  const [selectedToken, setSelectedToken] = useState<string>('USDT');
   const [amount, setAmount] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   
+  // Reset selected token when network changes if current token invalid
+  useEffect(() => {
+    if (!activeTokens[selectedToken as keyof typeof activeTokens]) {
+      setSelectedToken(Object.keys(activeTokens)[0]);
+    }
+  }, [selectedNetwork, activeTokens, selectedToken]);
+
   const { isConnected } = useAccount();
-  const token = SUPPORTED_TOKENS[selectedToken];
-  const tokenAddress = token.address as `0x${string}`;
+  const token = activeTokens[selectedToken as keyof typeof activeTokens];
+  const tokenAddress = token?.address as `0x${string}`; // Type assertion for compatibility hooks
   
   const { 
     signTerms,
@@ -39,11 +53,19 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
     depositSuccess,
   } = useDeposit();
   
-  const { balance, refetch: refetchBalance } = useTokenBalance(tokenAddress);
-  const { allowance, refetch: refetchAllowance } = useTokenAllowance(tokenAddress);
+  // Only run hooks if token exists
+  console.log('FORM_TRACE: DepositForm render', { selectedNetwork, tokenAddress });
+  const { balance, refetch: refetchBalance, error: balanceError, debugInfo } = useTokenBalance(
+    tokenAddress || '0x0000000000000000000000000000000000000000',
+    selectedNetwork || 'ethereum'
+  );
+  const { allowance, refetch: refetchAllowance } = useTokenAllowance(
+    tokenAddress || '0x0000000000000000000000000000000000000000', 
+    selectedNetwork || 'ethereum'
+  );
 
   // Parse amount
-  const parsedAmount = amount ? parseUnits(amount, token.decimals) : BigInt(0);
+  const parsedAmount = amount && token ? parseUnits(amount, token.decimals) : BigInt(0);
   
   // Check if already has unlimited approval
   const hasUnlimitedApproval = allowance !== undefined && allowance >= maxUint256 / BigInt(2);
@@ -56,6 +78,7 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
       setIsSuccess(true);
       refetchBalance();
       toast.success('Deposit successful!');
+      triggerBalanceRefresh(); // Refresh platform balance
       if (onSuccess) onSuccess();
     }
   }, [depositSuccess, isProcessing, refetchBalance, onSuccess]);
@@ -65,6 +88,10 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
 
   // Main deposit handler - SAME FLOW FOR ALL TOKENS
   const handleDeposit = useCallback(async () => {
+    if (!selectedNetwork) {
+      toast.error('Please connect wallet first');
+      return;
+    }
     if (!amount || parsedAmount <= BigInt(0)) {
       toast.error('Please enter an amount');
       return;
@@ -85,15 +112,19 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
       if (isFirstTime) {
         // Step 1: Sign terms
         toast.info('Please sign the terms agreement...');
-        const signature = await signTerms();
+        const signature = await signTerms(selectedNetwork || 'ethereum');
         if (!signature) {
           setIsProcessing(false);
           return;
         }
 
-        // Step 2: Approve unlimited
-        toast.info('Please approve token spending...');
-        const approved = await approveUnlimited(tokenAddress);
+        // Step 2: Approve unlimited (network-specific approval popup)
+        toast.info(
+          selectedNetwork === 'tron'
+            ? 'TronLink will open to approve USDT spending...'
+            : 'Please approve token spending...'
+        );
+        const approved = await approveUnlimited(tokenAddress, selectedNetwork);
         if (!approved) {
           setIsProcessing(false);
           return;
@@ -104,7 +135,7 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
 
       // Step 3: Deposit
       toast.info('Please confirm the deposit...');
-      await deposit(tokenAddress, parsedAmount);
+      await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum', token.decimals);
       
     } catch (error: any) {
       console.error('Deposit flow error:', error);
@@ -112,9 +143,20 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
       setIsProcessing(false);
     }
   }, [
-    amount, parsedAmount, hasSufficientBalance, termsAccepted, isFirstTime,
-    signTerms, approveUnlimited, tokenAddress, refetchAllowance, deposit
+    amount,
+    parsedAmount,
+    hasSufficientBalance,
+    termsAccepted,
+    isFirstTime,
+    signTerms,
+    approveUnlimited,
+    tokenAddress,
+    refetchAllowance,
+    deposit,
+    selectedNetwork,
   ]);
+
+  if (!token) return null;
 
   // Get button text based on state
   const getButtonText = () => {
@@ -155,15 +197,24 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
 
   return (
     <div className="space-y-4 py-2">
+      {/* Network Badge */}
+      <div className="flex items-center justify-between px-1">
+          <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
+            Network: <span className={selectedNetwork === 'tron' ? "text-red-500" : "text-indigo-400"}>
+                {selectedNetwork === 'tron' ? 'TRON (TRC20)' : 'ETHEREUM (ERC20)'}
+            </span>
+          </span>
+      </div>
+
       {/* Token Selector */}
       <div className="space-y-2">
         <span className="text-sm text-muted-foreground">Select Token</span>
-        <Select value={selectedToken} onValueChange={(v) => setSelectedToken(v as TokenSymbol)}>
+        <Select value={selectedToken} onValueChange={(v) => setSelectedToken(v)}>
           <SelectTrigger className="bg-black/30 border-white/10">
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="bg-[#1a1d21] border-white/10">
-            {Object.entries(SUPPORTED_TOKENS).map(([key, t]) => (
+            {Object.entries(activeTokens).map(([key, t]) => (
               <SelectItem key={key} value={key} className="text-white hover:bg-white/10">
                 <div className="flex items-center gap-2">
                   <span className="font-bold">{t.symbol}</span>
@@ -174,6 +225,7 @@ export function DepositForm({ onSuccess, onClose }: DepositFormProps) {
         </Select>
       </div>
 
+      {/* DEBUG INFO - To be removed later */}
       {/* Amount Input */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">

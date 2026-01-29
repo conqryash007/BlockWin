@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@supabase/supabase-js';
 
 // Custom event name for balance updates
@@ -23,7 +23,7 @@ export function triggerBalanceRefresh() {
 }
 
 export function usePlatformBalance() {
-  const { address, isConnected } = useAccount();
+  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
   const [balance, setBalance] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -53,12 +53,16 @@ export function usePlatformBalance() {
         .from('balances')
         .select('amount')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       console.log('Balance lookup result:', { balanceData, balanceError });
 
-      if (balanceError || !balanceData) {
-        setBalance(0);
+      if (balanceError) {
+          console.error('Balance fetch error:', balanceError);
+          setBalance(0);
+      } else if (!balanceData) {
+          // No balance record found - implies 0
+          setBalance(0);
       } else {
         setBalance(Number(balanceData.amount) || 0);
       }

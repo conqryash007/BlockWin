@@ -74,6 +74,33 @@ const MAINNET_CONFIG = {
 };
 
 // ============================================
+// Tron Network Configuration
+// (Shasta testnet + Mainnet)
+// ============================================
+
+export const TRON_CONFIG = {
+  shasta: {
+    name: 'Shasta Testnet',
+    fullHost: 'https://api.shasta.trongrid.io',
+    // CasinoDeposit contract on Shasta testnet (provided)
+    casinoDepositAddress: 'TSemQAPrBNtFq99nhJWBfb7iY5DrNXstGU',
+    // Common Shasta USDT (TRC-20) address; can be overridden via env if needed
+    usdt: 'TXRwfd4jqK9hLSAJjtgvZToodKgHfHiJEH',
+  },
+  mainnet: {
+    name: 'Tron Mainnet',
+    fullHost: 'https://api.trongrid.io',
+    // CasinoDeposit contract on Tron mainnet (provided)
+    casinoDepositAddress: 'TLvMnfDNjBwvabX1SXMC2DzegL897YJz11',
+    // Official USDT (TRC-20) on Tron mainnet
+    usdt: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+  },
+} as const;
+
+export const getActiveTronConfig = () =>
+  isMainnet() ? TRON_CONFIG.mainnet : TRON_CONFIG.shasta;
+
+// ============================================
 // Dynamic Exports Based on Environment
 // ============================================
 
@@ -87,6 +114,16 @@ export const getActiveNetworkConfig = () =>
  * Supported tokens - dynamically selected based on environment
  */
 export const SUPPORTED_TOKENS = isMainnet() ? MAINNET_TOKENS : TESTNET_TOKENS;
+
+export const TRON_TOKENS = {
+  USDT: {
+    symbol: 'USDT',
+    name: 'Tether USD',
+    address: getActiveTronConfig().usdt,
+    decimals: 6,
+    supportsPermit: false,
+  }
+} as const;
 
 export type TokenSymbol = keyof typeof SUPPORTED_TOKENS;
 export type TokenConfig = typeof SUPPORTED_TOKENS[TokenSymbol];
@@ -1168,6 +1205,8 @@ export const CONTRACTS = {
   ERC20Permit: {
     abi: ERC20_PERMIT_ABI,
   },
+
+  TRON_CONFIG,
 } as const;
 
 export default CONTRACTS;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,23 +8,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Wallet, Smartphone, Globe, ChevronRight, Loader2 } from "lucide-react";
 import { useConnect, useChainId, useSwitchChain } from "wagmi";
 import { getActiveChain, getNetworkName } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
-import { DepositForm } from './DepositForm';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
+import { NetworkSelector } from './NetworkSelector';
 
 interface WalletModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isConnected: boolean;
   onConnect?: () => void;
-  onDepositSuccess?: () => void;
 }
 
 const getWalletStyle = (name: string) => {
@@ -56,15 +53,43 @@ const getWalletStyle = (name: string) => {
 
 
 
-export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess }: WalletModalProps) {
+export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
+  const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(null);
   const { connectors, connect } = useConnect();
+  
+  // Tron Adapter hooks
+  const { 
+    wallets: tronWallets, 
+    select: selectTronWallet, 
+    connect: connectTronWallet,
+    connected: isTronConnected,
+    address: tronAddress,
+    wallet: currentTronWallet
+  } = useWallet();
+
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
-  // Check if user is on wrong network
+  // Unified connection check
+  const isAnyConnected = isConnected || isTronConnected;
+  
+  // Check if user is on wrong network (EVM only)
   const activeChain = getActiveChain();
   const isWrongNetwork = isConnected && chainId !== activeChain.id;
+
+  // Reset network selection when modal closes
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      setSelectedNetwork(null);
+    }
+    onOpenChange(newOpen);
+  };
+
+  // Don't render modal if authenticated
+  if (isAuthenticated && open) {
+    return null;
+  }
   
 
 
@@ -76,7 +101,7 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
 
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[calc(100%-32px)] sm:max-w-[400px] rounded-xl p-0 overflow-hidden bg-[#0d0f11] border-white/10 text-white gap-0 shadow-2xl shadow-black/50">
         
         {/* Header Section */}
@@ -90,16 +115,24 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                     <Wallet className="w-8 h-8" />
                 </div>
                 <div className="space-y-1">
-                    <h2 className="text-xl font-bold text-white">{isConnected ? "Wallet Actions" : "Connect Wallet"}</h2>
-                    {!isConnected && (
-                         <p className="text-sm font-normal text-muted-foreground">Select your preferred method</p>
+                    <h2 className="text-xl font-bold text-white">{isAnyConnected ? "Wallet Actions" : "Connect Wallet"}</h2>
+                    {!isAnyConnected && !selectedNetwork && (
+                         <p className="text-sm font-normal text-muted-foreground">Select your network first</p>
                     )}
                 </div>
             </DialogTitle>
             </DialogHeader>
         </div>
 
-        {!isConnected ? (
+        {/* Network Selection Step - Show first when modal opens */}
+        {!selectedNetwork ? (
+          <div className="p-6 pt-2">
+            <NetworkSelector
+              value={selectedNetwork}
+              onChange={(network) => setSelectedNetwork(network)}
+            />
+          </div>
+        ) : !isAnyConnected && selectedNetwork === 'ethereum' ? (
              <div className="p-6 pt-2 space-y-6">
                 <div className="flex flex-col gap-3">
                    {[...connectors]
@@ -150,6 +183,56 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
 
                 <div className="pt-2 text-center border-t border-white/5">
                     <p className="text-[10px] text-muted-foreground/40 uppercase tracking-widest font-medium">Secured by Wagmi</p>
+                </div>
+             </div>
+        ) : selectedNetwork === 'tron' && !isAnyConnected ? (
+             <div className="p-6 pt-2 space-y-6">
+                 {/* TRON WALLET SELECTION */}
+                <div className="flex flex-col gap-3">
+                   {tronWallets.map((wallet) => {
+                      const isWalletConnect = wallet.adapter.name === 'WalletConnect';
+                      const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
+                      return (
+                          <button 
+                              key={wallet.adapter.name}
+                              onClick={async () => {
+                                  if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
+                                      selectTronWallet(wallet.adapter.name);
+                                  }
+                                  // If ready, connect. If not (and not WalletConnect), it might need extension install
+                                  // For WalletConnect, "readyState" logic is handled internally usually, but we Trigger connect
+                                  try {
+                                      await connectTronWallet();
+                                  } catch (e) {
+                                      console.error("Tron connection error:", e);
+                                  }
+                              }}
+                              className={cn(
+                                  "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
+                                  border
+                              )}
+                            >
+                            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
+                                {/* Tron adapter icons are URLs usually */}
+                                {wallet.adapter.icon ? (
+                                    <img src={wallet.adapter.icon} alt={wallet.adapter.name} className="w-5 h-5 object-contain" />
+                                ) : (
+                                    <Icon className={cn("w-5 h-5", color)} />
+                                )}
+                            </div>
+                            
+                            <div className="flex-1 text-left">
+                                <span className="block font-medium text-sm text-white group-hover:text-white transition-colors">
+                                    {wallet.adapter.name === 'WalletConnect' ? 'Mobile Wallets' : wallet.adapter.name}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground/70 tracking-tight">
+                                     {wallet.adapter.name === 'WalletConnect' ? 'Scan with Trust Wallet / TronLink' : 'Browser Extension'}
+                                </span>
+                            </div>
+
+                            <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white/40 group-hover:translate-x-0.5 transition-all" />
+                        </button>
+                      )})}
                 </div>
              </div>
         ) : isWrongNetwork ? (
@@ -207,11 +290,23 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                             </p>
                         </div>
                         <Button 
-                            onClick={() => login()} 
+                            onClick={() => {
+                              login().then(() => {
+                                // Close modal after successful login
+                                handleOpenChange(false);
+                              });
+                            }} 
                             disabled={loading}
-                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {loading ? "Waiting for Signature..." : "Sign to Login"}
+                            {loading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              "Sign to Login"
+                            )}
                         </Button>
                     </>
                 ) : accountStatus === 'new' ? (
@@ -227,11 +322,23 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                             </p>
                         </div>
                         <Button 
-                            onClick={() => login()} 
+                            onClick={() => {
+                              login().then(() => {
+                                // Close modal after successful signup
+                                handleOpenChange(false);
+                              });
+                            }} 
                             disabled={loading}
-                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {loading ? "Waiting for Signature..." : "Sign to Create Account"}
+                            {loading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              "Sign to Create Account"
+                            )}
                         </Button>
                     </>
                 ) : (
@@ -246,64 +353,28 @@ export function WalletModal({ open, onOpenChange, isConnected, onDepositSuccess 
                             </p>
                         </div>
                         <Button 
-                            onClick={() => login()} 
+                            onClick={() => {
+                              login().then(() => {
+                                // Close modal after successful authentication
+                                handleOpenChange(false);
+                              });
+                            }} 
                             disabled={loading}
-                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px]"
+                            className="w-full bg-casino-brand text-black hover:bg-casino-brand-hover font-bold max-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {loading ? "Waiting for Signature..." : "Sign Message"}
+                            {loading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Verifying...
+                              </>
+                            ) : (
+                              "Sign Message"
+                            )}
                         </Button>
                     </>
                 )}
             </div>
-        ) : (
-            <div className="p-6 pt-0">
-                <Tabs defaultValue="deposit" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 bg-[#191b1d] p-1 h-12 mb-6 border border-white/5 rounded-lg">
-                        <TabsTrigger 
-                            value="deposit"
-                            className="h-full data-[state=active]:bg-[#2a2d31] data-[state=active]:text-white data-[state=active]:shadow-sm rounded-md transition-all text-muted-foreground"
-                        >Deposit</TabsTrigger>
-                        <TabsTrigger 
-                            value="withdraw"
-                            className="h-full data-[state=active]:bg-[#2a2d31] data-[state=active]:text-white data-[state=active]:shadow-sm rounded-md transition-all text-muted-foreground"
-                        >Withdraw</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="deposit" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
-                    <TabsContent value="deposit" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
-                        <DepositForm 
-                            onSuccess={() => {
-                                // Trigger global balance refresh
-                                triggerBalanceRefresh();
-                                if (onDepositSuccess) {
-                                    onDepositSuccess();
-                                }
-                            }}
-                        />
-                    </TabsContent>
-                    </TabsContent>
-
-                    <TabsContent value="withdraw" className="space-y-4 animate-in fade-in-50 zoom-in-95 duration-200">
-                    <div className="space-y-2">
-                        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Destination Address</Label>
-                        <Input placeholder="Enter BTC address" className="bg-black/20 border-white/10 h-11" />
-                    </div>
-                    <div className="space-y-2">
-                        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</Label>
-                        <div className="relative">
-                            <Input placeholder="0.00" type="number" className="bg-black/20 border-white/10 h-11 pr-14" />
-                            <Button size="sm" variant="ghost" className="absolute right-1 top-1.5 text-casino-brand text-xs h-8 hover:bg-casino-brand/10 hover:text-casino-brand">MAX</Button>
-                        </div>
-                    </div>
-                    <div className="pt-4">
-                        <Button className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-bold" variant="destructive">
-                            Withdraw Funds
-                        </Button>
-                    </div>
-                    </TabsContent>
-                </Tabs>
-            </div>
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   );

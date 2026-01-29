@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, Search, LogOut, User, Copy, ExternalLink, X } from "lucide-react";
+import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -27,13 +27,19 @@ export function Header() {
   const [isMounted, setIsMounted] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   
-  // Real Wagmi Hooks
-  const { address, isConnected } = useAccount();
+  // Real Wagmi Hooks (Keep for disconnect, but use useAuth for state)
   const { disconnect } = useDisconnect();
   
   // Platform balance from Supabase
   const { balance: platformBalance, isLoading: isBalanceLoading } = usePlatformBalance();
-  const { logout, login, isAuthenticated } = useAuth();
+  const { 
+      logout, 
+      login, 
+      isAuthenticated,
+      activeAddress: address, // Alias to 'address' for minimal code changes below
+      isAnyConnected: isConnected, // Alias to 'isConnected'
+      loading
+  } = useAuth();
 
   useEffect(() => {
     setIsMounted(true);
@@ -44,6 +50,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-white/5 bg-background/60 backdrop-blur-md px-3 sm:px-6 transition-all">
+      {/* ... Left side and Search ... */}
       {/* Left side - Mobile menu + Logo */}
       <div className="flex items-center gap-2 sm:gap-4 lg:hidden">
         <MobileSidebar />
@@ -125,28 +132,39 @@ export function Header() {
             size="sm"
             className={cn(
               "gap-1.5 sm:gap-2 font-bold transition-all duration-300 h-8 sm:h-9 px-2 sm:px-4 text-xs sm:text-sm",
-              isConnected 
+                isConnected 
                 ? isAuthenticated 
                   ? "bg-secondary hover:bg-secondary/80 text-white" 
-                  : "bg-yellow-500 hover:bg-yellow-600 text-black animate-pulse"
+                  : cn(
+                      "bg-yellow-500 hover:bg-yellow-600 text-black",
+                      loading ? "opacity-50 cursor-not-allowed" : "animate-pulse"
+                    )
                 : "bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_20px_rgba(0,255,163,0.4)] hover:-translate-y-0.5"
             )}
             onClick={() => {
-              if (isConnected && !isAuthenticated) {
-                // Directly trigger login when wallet is connected but not authenticated
-                login();
-              } else {
-                // Open modal for wallet selection or wallet actions
-                setIsWalletOpen(true);
-              }
-            }}
+                if (isConnected && !isAuthenticated) {
+                  // Directly trigger login when wallet is connected but not authenticated
+                  if (!loading) login();
+                } else {
+                  // Open modal for wallet selection or wallet actions
+                  setIsWalletOpen(true);
+                }
+              }}
+              disabled={loading || (isConnected && !isAuthenticated && loading)}
           >
-            <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            {loading ? (
+               <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+            ) : (
+               <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            )}
+            
             {isConnected ? (
               isAuthenticated ? (
                 <span className="hidden sm:inline">{`${address?.slice(0, 6)}...${address?.slice(-4)}`}</span>
               ) : (
-                <span className="hidden xs:inline">Sign to Verify</span>
+                <span className="hidden xs:inline">
+                   {loading ? "Verifying..." : "Sign to Verify"}
+                </span>
               )
             ) : (
               <>
@@ -198,7 +216,11 @@ export function Header() {
               <DropdownMenuItem 
                 onClick={() => {
                   if (address) {
-                    window.open(`https://etherscan.io/address/${address}`, '_blank');
+                      const isTron = address.startsWith('T');
+                      const url = isTron 
+                        ? `https://tronscan.org/#/address/${address}`
+                        : `https://etherscan.io/address/${address}`;
+                    window.open(url, '_blank');
                   }
                 }}
               >
