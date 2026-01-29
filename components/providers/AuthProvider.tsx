@@ -335,8 +335,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 toast.info(`Switching Tron wallet to ${targetName}...`);
                 
                 try {
-                  if (window.tronLink && window.tronLink.request) {
-                     const switchPromise = window.tronLink.request({
+                  if (window.tronLink && (window.tronLink as any).request) {
+                     const switchPromise = (window.tronLink as any).request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: targetChainId }]
                      });
