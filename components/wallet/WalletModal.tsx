@@ -189,7 +189,13 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
              <div className="p-6 pt-2 space-y-6">
                  {/* TRON WALLET SELECTION */}
                 <div className="flex flex-col gap-3">
-                   {tronWallets.map((wallet) => {
+                   {tronWallets
+                     .filter(wallet => 
+                         wallet.adapter.name === 'WalletConnect' || 
+                         (wallet.adapter.readyState as string) === 'Found' || 
+                         (wallet.state as string) === 'Connected'
+                     )
+                     .map((wallet) => {
                       const isWalletConnect = wallet.adapter.name === 'WalletConnect';
                       const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
                       return (

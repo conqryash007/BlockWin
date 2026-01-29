@@ -24,6 +24,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
                     icons: ['https://blockwin.space/logo.png'],
                 },
             },
+            themeMode: 'dark',
         });
 
         return [tronLink, trustWallet, walletConnect];
