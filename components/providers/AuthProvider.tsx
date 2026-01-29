@@ -322,8 +322,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const tronWeb = window.tronWeb ?? window.tronLink?.tronWeb;
           const isProd = isMainnet();
           
-          if (tronWeb && tronWeb.fullNode && tronWeb.fullNode.host) {
-             const host = tronWeb.fullNode.host.toLowerCase();
+          if (tronWeb && (tronWeb as any).fullNode && (tronWeb as any).fullNode.host) {
+             const host = (tronWeb as any).fullNode.host.toLowerCase();
              const isOnShasta = host.includes('shasta');
              const wrongNetwork = isProd ? isOnShasta : !isOnShasta;
 
