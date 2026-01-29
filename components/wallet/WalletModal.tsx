@@ -208,9 +208,13 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                                   // If ready, connect. If not (and not WalletConnect), it might need extension install
                                   // For WalletConnect, "readyState" logic is handled internally usually, but we Trigger connect
                                   try {
+                                      console.log("Connecting to Tron wallet:", wallet.adapter.name);
                                       await connectTronWallet();
+                                      console.log("Tron wallet connection initiated");
                                   } catch (e) {
                                       console.error("Tron connection error:", e);
+                                      // @ts-ignore
+                                      if (e?.message) console.error("Error message:", e.message);
                                   }
                               }}
                               className={cn(

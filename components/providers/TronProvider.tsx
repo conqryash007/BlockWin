@@ -15,6 +15,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
         const walletConnect = new WalletConnectAdapter({
             network: isMainnet() ? 'Mainnet' : 'Shasta',
             options: {
+                relayUrl: 'wss://relay.walletconnect.com',
                 projectId: projectId,
                 metadata: {
                     name: 'BlockWin Casino',
@@ -24,6 +25,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
                 },
             },
             themeMode: 'dark',
+            debug: true,
         });
 
         return [tronLink, trustWallet, walletConnect];
