@@ -16,7 +16,7 @@ export function DepositModal() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all ring-0 focus:ring-0 border-none outline-none">
+        <Button className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all">
           <Coins className="w-4 h-4 mr-2" />
           Deposit
         </Button>

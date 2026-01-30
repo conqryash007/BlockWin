@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { maxUint256 } from 'viem';
 import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
+import { TronWeb } from 'tronweb';
 
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { AuthContext, AuthContextType, AccountStatus } from '@/hooks/useAuth';
@@ -58,35 +59,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // State for Tron allowance
   const [usdtAllowanceTron, setUsdtAllowanceTron] = useState<bigint | undefined>(undefined);
 
-  // Fetch Tron Allowance
+  // Fetch Tron Allowance: use read-only TronWeb so WalletConnect/mobile wallets work (they don't inject window.tronWeb)
   const fetchTronAllowance = useCallback(async () => {
-      // Don't proceed if not conceptually connected
       if (!isTronConnected || !tronAddress) return;
-      
-      try {
-          // Trust Wallet and others inject tronWeb but might not be 'tronLink'
-          const tronWeb = window.tronWeb || (window.tronLink as any)?.tronWeb;
-          
-          if (!tronWeb) {
-             console.log("TronWeb missing");
-             return;
-          }
 
-          if (tronWeb.ready === false) {
-             // Only log warning if explicitly false
-             console.log("TronWeb not ready for allowance check, skipping...");
-             return;
-          }
+      const getReadOnlyTronWeb = () => {
+        if (typeof window === 'undefined') return null;
+        const tronConfig = getActiveTronConfig();
+        const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+        if (injected && injected.ready) return injected;
+        return new TronWeb({ fullHost: tronConfig.fullHost });
+      };
+
+      try {
+          const tronWeb = getReadOnlyTronWeb();
+          if (!tronWeb) return;
 
           const tronConfig = getActiveTronConfig();
           const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
           const allowance = await usdtContract.allowance(tronAddress, tronConfig.casinoDepositAddress).call();
-          
-          console.log("Tron Allowance Result:", allowance?.toString());
-          // Ensure we handle the response correctly - sometimes it's an object with { _hex } or similar
           const allowValue = allowance?.toString ? BigInt(allowance.toString()) : BigInt(0);
-          console.log("Tron Allowance Parsed:", allowValue.toString());
-          
           setUsdtAllowanceTron(allowValue);
       } catch (e) {
           console.error("Failed to fetch Tron allowance", e);

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -71,22 +70,6 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
-  
-  // Track pending connection for Tron to avoid race conditions
-  const [pendingTronWallet, setPendingTronWallet] = useState<string | null>(null);
-
-  // Effect to trigger connection once the wallet is actually selected
-  useEffect(() => {
-      if (pendingTronWallet && currentTronWallet?.adapter.name === pendingTronWallet) {
-          console.log("Wallet selected, triggering connection:", pendingTronWallet);
-          setPendingTronWallet(null); // Reset pending state
-          connectTronWallet().catch(e => {
-              console.error("Tron connection failed:", e);
-              // @ts-ignore
-              toast.error(e?.message || "Failed to connect wallet");
-          });
-      }
-  }, [pendingTronWallet, currentTronWallet, connectTronWallet]);
   
   // Unified connection check
   const isAnyConnected = isConnected || isTronConnected;
@@ -206,28 +189,22 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
              <div className="p-6 pt-2 space-y-6">
                  {/* TRON WALLET SELECTION */}
                 <div className="flex flex-col gap-3">
-                   {tronWallets
-                     .filter(wallet => 
-                         wallet.adapter.name === 'WalletConnect' || 
-                         (wallet.adapter.readyState as string) === 'Found' || 
-                         (wallet.state as string) === 'Connected'
-                     )
-                     .map((wallet) => {
+                   {tronWallets.map((wallet) => {
                       const isWalletConnect = wallet.adapter.name === 'WalletConnect';
                       const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
                       return (
                           <button 
                               key={wallet.adapter.name}
-                              onClick={() => {
+                              onClick={async () => {
                                   if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                       selectTronWallet(wallet.adapter.name);
-                                      setPendingTronWallet(wallet.adapter.name);
-                                  } else {
-                                      // Already selected, just connect
-                                      connectTronWallet().catch(e => {
-                                          console.error("Tron connection error:", e);
-                                          toast.error(e?.message || "Connection failed");
-                                      });
+                                  }
+                                  // If ready, connect. If not (and not WalletConnect), it might need extension install
+                                  // For WalletConnect, "readyState" logic is handled internally usually, but we Trigger connect
+                                  try {
+                                      await connectTronWallet();
+                                  } catch (e) {
+                                      console.error("Tron connection error:", e);
                                   }
                               }}
                               className={cn(
@@ -325,7 +302,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             {loading ? (
                               <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Verifying...
+                                Waiting for Signature...
                               </>
                             ) : (
                               "Sign to Login"
@@ -357,7 +334,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             {loading ? (
                               <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Verifying...
+                                Waiting for Signature...
                               </>
                             ) : (
                               "Sign to Create Account"
@@ -388,7 +365,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             {loading ? (
                               <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Verifying...
+                                Waiting for Signature...
                               </>
                             ) : (
                               "Sign Message"

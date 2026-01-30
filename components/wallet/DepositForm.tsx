@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
-import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 
 interface DepositFormProps {
   selectedNetwork: 'ethereum' | 'tron' | null;
@@ -59,10 +58,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     tokenAddress || '0x0000000000000000000000000000000000000000',
     selectedNetwork || 'ethereum'
   );
-  const { allowance, refetch: refetchAllowance } = useTokenAllowance(
-    tokenAddress || '0x0000000000000000000000000000000000000000', 
-    selectedNetwork || 'ethereum'
-  );
+  const { allowance, refetch: refetchAllowance } = useTokenAllowance(tokenAddress || '0x0000000000000000000000000000000000000000');
 
   // Parse amount
   const parsedAmount = amount && token ? parseUnits(amount, token.decimals) : BigInt(0);
@@ -78,7 +74,6 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
       setIsSuccess(true);
       refetchBalance();
       toast.success('Deposit successful!');
-      triggerBalanceRefresh(); // Refresh platform balance
       if (onSuccess) onSuccess();
     }
   }, [depositSuccess, isProcessing, refetchBalance, onSuccess]);
@@ -112,7 +107,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
       if (isFirstTime) {
         // Step 1: Sign terms
         toast.info('Please sign the terms agreement...');
-        const signature = await signTerms(selectedNetwork || 'ethereum');
+        const signature = await signTerms();
         if (!signature) {
           setIsProcessing(false);
           return;
@@ -135,7 +130,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
 
       // Step 3: Deposit
       toast.info('Please confirm the deposit...');
-      await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum', token.decimals);
+      await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
       
     } catch (error: any) {
       console.error('Deposit flow error:', error);
@@ -225,21 +220,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         </Select>
       </div>
 
-      {/* DEBUG INFO - Temporary for mobile troubleshooting */}
-      {selectedNetwork === 'tron' && (
-          <details className="text-[10px] text-muted-foreground bg-black/20 p-2 rounded border border-white/5 mb-2">
-              <summary className="cursor-pointer font-bold hover:text-white">Debug Info (Click to expand)</summary>
-              <div className="mt-2 space-y-1 font-mono break-all">
-                  <p>Status: <span className="text-yellow-400">{debugInfo?.status || 'Idle'}</span></p>
-                  <p>Token: {tokenAddress}</p>
-                  <p>My Addr: {(debugInfo as any)?.userAddr || 'Unknown'}</p>
-                  <p>Node: {(debugInfo as any)?.node || 'Unknown'}</p>
-                  <p>Balance: {balance?.toString() || 'Undefined'}</p>
-                  <p>Error: <span className="text-red-400">{balanceError || 'None'}</span></p>
-              </div>
-          </details>
-      )}
-
+      {/* DEBUG INFO - To be removed later */}
       {/* Amount Input */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
@@ -285,14 +266,8 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         </div>
       </div>
 
-      {amount && !hasSufficientBalance && !balanceError && (
+      {amount && !hasSufficientBalance && (
         <p className="text-red-500 text-sm">Insufficient balance</p>
-      )}
-
-      {balanceError && (
-         <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20">
-             <p className="text-red-400 text-xs font-mono">{balanceError}</p>
-         </div>
       )}
 
       {/* Terms - only show on first time */}
