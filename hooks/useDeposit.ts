@@ -502,25 +502,45 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       }
 
       let balanceVal: bigint | undefined;
-
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Contract Load Timeout')), 4000));
+      
       // METHOD 1: High-level Contract Object (Standard)
+      // Skip Method 1 if no fullNode host is detected (common on mobile injections causing hang)
+      let skipMethod1 = false;
       try {
-          const contract = await tronWeb.contract().at(tokenAddress);
-          if (typeof contract.balanceOf === 'function') {
-             const res = await contract.balanceOf(activeAddress).call();
-             balanceVal = BigInt(res.toString());
-             console.log('HOOK_TRACE: Method 1 success:', balanceVal.toString());
-          } else if (contract.methods?.balanceOf) {
-             const res = await contract.methods.balanceOf(activeAddress).call();
-             balanceVal = BigInt(res.toString());
-             console.log('HOOK_TRACE: Method 1 (alt) success:', balanceVal.toString());
+           if (!tronWeb.fullNode?.host) {
+               console.warn('HOOK_TRACE: No fullNode host detected, skipping Method 1 to avoid hang.');
+               skipMethod1 = true;
+           }
+      } catch (e) { skipMethod1 = true; }
+
+      try {
+          if (!skipMethod1) {
+            setDebugStatus(`Try M1 std...`);
+            // RACE: Contract load vs Timeout
+            const contract: any = await Promise.race([
+                tronWeb.contract().at(tokenAddress),
+                timeoutPromise
+            ]);
+
+            if (typeof contract.balanceOf === 'function') {
+                const res = await contract.balanceOf(activeAddress).call();
+                balanceVal = BigInt(res.toString());
+                console.log('HOOK_TRACE: Method 1 success:', balanceVal.toString());
+            } else if (contract.methods?.balanceOf) {
+                const res = await contract.methods.balanceOf(activeAddress).call();
+                balanceVal = BigInt(res.toString());
+                console.log('HOOK_TRACE: Method 1 (alt) success:', balanceVal.toString());
+            }
           }
       } catch (err: any) {
-          console.warn('HOOK_TRACE: Method 1 failed:', err);
+          console.warn('HOOK_TRACE: Method 1 failed or timed out:', err);
+          setDebugStatus(`M1 Failed: ${err.message?.slice(0, 10)}`);
       }
 
       // METHOD 2: Low-level triggerConstantContract (Fallback)
       if (balanceVal === undefined) {
+          setDebugStatus(`Try M2 (Low)...`);
           console.log('HOOK_TRACE: Attempting Method 2 (triggerConstantContract)...');
           try {
               const parameter = [{ type: 'address', value: activeAddress }];
