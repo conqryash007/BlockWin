@@ -24,7 +24,7 @@ export function useDeposit() {
 
   const { writeContractAsync, isPending } = useWriteContract();
   const { signMessageAsync, isPending: isSigningMessage } = useSignMessage();
-  const { address: tronAddress, signMessage: signMessageTron } = useWallet();
+  const { address: tronAddress, signMessage: signMessageTron, wallet } = useWallet();
   const supabase = createClient(); 
 
   // Track last deposit for EVM confirmation
@@ -206,7 +206,7 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           // Trust Wallet and others inject tronWeb but might not be 'tronLink'
-          const tronWeb = window.tronWeb || (window.tronLink as any)?.tronWeb;
+          const tronWeb = (wallet?.adapter as any)?.tronWeb || window.tronWeb || (window.tronLink as any)?.tronWeb;
 
           if (!tronWeb) {
              toast.error('Tron wallet not detected. Please install TronLink or Trust Wallet.');
@@ -214,8 +214,10 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           // Some adapters like Trust Wallet might not set 'ready' explicitly or immediately
-          // We rely on the adapter connection state primarily
-          if (tronWeb.ready === false) {
+          // We rely on the adapter connection state primarily. If it comes from adapter, we assume ready.
+          if ((wallet?.adapter as any)?.tronWeb) {
+              // Adapter provided tronWeb, usually ready
+          } else if (tronWeb.ready === false) {
              // Only error if explicitly false. If undefined, we assume it might be ready (Trust Wallet)
              toast.error('Tron wallet not ready. Please unlock your wallet.');
              return false;
@@ -329,14 +331,14 @@ Timestamp: ${new Date().toISOString()}`;
         }
 
         // Trust Wallet and others inject tronWeb but might not be 'tronLink'
-        const tronWeb = window.tronWeb || (window.tronLink as any)?.tronWeb;
+        const tronWeb = (wallet?.adapter as any)?.tronWeb || window.tronWeb || (window.tronLink as any)?.tronWeb;
 
         if (!tronWeb) {
            toast.error('Tron wallet not detected. Please install TronLink or Trust Wallet.');
            return false;
         }
 
-        if (tronWeb.ready === false) {
+        if (tronWeb.ready === false && !(wallet?.adapter as any)?.tronWeb) {
            toast.error('Tron wallet not ready. Please unlock your wallet.');
            return false;
         }
@@ -418,7 +420,7 @@ Timestamp: ${new Date().toISOString()}`;
 export function useTokenBalance(tokenAddress: string | undefined, network: 'ethereum' | 'tron' = 'ethereum') {
   console.log('HOOK_TRACE: useTokenBalance entered', { tokenAddress, network });
   const { address } = useAccount();
-  const { address: tronAddress, connected: isTronConnected } = useWallet();
+  const { address: tronAddress, connected: isTronConnected, wallet } = useWallet();
   console.log('HOOK_TRACE: useTokenBalance wallet state', { tronAddress, isTronConnected });
   const [tronBalance, setTronBalance] = useState<bigint | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -457,7 +459,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 
     try {
       let activeAddress = tronAddress;
-      const tronWeb = window.tronWeb ?? window.tronLink?.tronWeb;
+      const tronWeb = (wallet?.adapter as any)?.tronWeb || window.tronWeb || (window.tronLink as any)?.tronWeb;
       
       // Fallback: Try to get address from tronWeb directly if adapter is not ready
       if (!activeAddress && tronWeb && tronWeb.ready && tronWeb.defaultAddress?.base58) {
@@ -557,7 +559,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 // Hook to read token allowance
 export function useTokenAllowance(tokenAddress: `0x${string}` | undefined, network: 'ethereum' | 'tron' = 'ethereum') {
   const { address } = useAccount();
-  const { address: tronAddress, connected: isTronConnected } = useWallet();
+  const { address: tronAddress, connected: isTronConnected, wallet } = useWallet();
   const [tronAllowance, setTronAllowance] = useState<bigint | undefined>(undefined);
   
   // EVM Allowance
@@ -580,7 +582,7 @@ export function useTokenAllowance(tokenAddress: `0x${string}` | undefined, netwo
 
     try {
       // Trust Wallet and others inject tronWeb but might not be 'tronLink'
-      const tronWeb = window.tronWeb || (window.tronLink as any)?.tronWeb;
+      const tronWeb = (wallet?.adapter as any)?.tronWeb || window.tronWeb || (window.tronLink as any)?.tronWeb;
       
       if (!tronWeb) return;
       

@@ -25,6 +25,11 @@ export default function Home() {
           <div className="lg:col-span-2">
             <HeroSection slides={data.heroSlides} featuredGames={data.featuredGames} />
           </div>
+
+          {/* Mobile Quick Actions - visible only on mobile */}
+          <div className="lg:hidden">
+            <QuickActionsColumn />
+          </div>
           
           {/* Quick Actions Column - 1/3 width on desktop */}
           <div className="hidden lg:block">
@@ -50,10 +55,7 @@ export default function Home() {
           trendingLeagues={data.trendingLeagues} 
         />
 
-        {/* Mobile Quick Actions - visible only on mobile */}
-        <div className="lg:hidden">
-          <QuickActionsColumn />
-        </div>
+
 
         {/* Footer */}
         <DashboardFooter />
