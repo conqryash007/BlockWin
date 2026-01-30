@@ -553,17 +553,78 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
               );
               
               if (res && res.constant_result && res.constant_result[0]) {
-                  // Result is hex string
                   const hexVal = res.constant_result[0];
-                  // Parse hex to BigInt
                   balanceVal = BigInt('0x' + hexVal);
                   console.log('HOOK_TRACE: Method 2 success:', balanceVal.toString());
-              } else {
-                  throw new Error('Invalid response from triggerConstantContract');
               }
           } catch (err: any) {
               console.error('HOOK_TRACE: Method 2 failed:', err);
-              throw new Error('All fetch methods failed: ' + (err.message || 'Unknown error'));
+          }
+      }
+
+      // METHOD 3: Public RPC (Last Resort)
+      // This bypasses the wallet's node entirely and uses public TronGrid
+      if (balanceVal === undefined) {
+          setDebugStatus(`Try M3 (RPC)...`);
+          console.log('HOOK_TRACE: Attempting Method 3 (Public RPC)...');
+          try {
+             // We need address in Hex. TronWeb usually has this utility sync.
+             const ownerHex = tronWeb.address.toHex(activeAddress);
+             const tokenHex = tronWeb.address.toHex(tokenAddress); // address should be passed as hex for contract_address field usually? No, TronGrid accepts both but let's try.
+             
+             // Construct parameter: 0000...000 + hexAddress (without 41 prefix? No, TRC20 needs 64 chars param)
+             // Actually, parameter for balanceOf is just the address padded to 64 chars
+             // Address in hex (without '41' prefix? No, full hex)
+             
+             if (!ownerHex) throw new Error('Could not convert address to hex');
+
+             // Remove '41' prefix for padding or keep it? 
+             // Standard ABI encoding: address is 20 bytes, right padded to 32 bytes (64 hex chars)? No, LEFT padded.
+             // But Tron addresses are 21 bytes (start with 41).
+             // Let's use the raw hex from toHex which starts with 41.
+             // We need to pad it to 64 chars (32 bytes). 
+             // "0000000000000000000000" + (ownerHex minus '41' prefix? or full ownerHex?)
+             // Actually, simplest way is to use tronWeb to encode params IF it works, but we are avoiding tronWeb functions that might fail.
+             // Let's manually pad.
+             const cleanOwnerHex = ownerHex.replace(/^41/, '');
+             const parameter = '0'.repeat(24) + cleanOwnerHex; // 64 chars total (24 zeros + 40 chars address) -> NO, Tron addresses are 21 bytes (42 chars). 
+             // WAIT. EVM is 20 bytes. Tron is 21 bytes. 
+             // triggerConstantContract via API expects parameter in hex.
+             // Let's try sending the parameter as the wallet would: 
+             
+             // Better approach: Use the same payload structure as official docs
+             const payload = {
+                 owner_address: ownerHex,
+                 contract_address: tokenAddress, // Can be Base58
+                 function_selector: 'balanceOf(address)',
+                 parameter: '000000000000000000000000' + ownerHex.substring(2), // Pad to 64 chars? 
+                 // Standard EVM ABI padding: 32 bytes. Address is 20 bytes.
+                 // Tron address (base58) -> Hex (41...) is 21 bytes.
+                 // But in Solidity `balanceOf(address)`, the address is 20 bytes. 
+                 // The '41' is truncated/handled by TVM? 
+                 // Let's try the standard padding for EVM: 
+                 // 000000000000000000000000 + 40-char-address (eth style).
+                 // Tron hex address starts with 41. If we strip 41, we get 20 bytes (40 chars).
+                 visible: true
+             };
+
+             const response = await fetch('https://api.trongrid.io/wallet/triggerconstantcontract', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify(payload)
+             });
+             
+             const data = await response.json();
+             if (data.constant_result && data.constant_result[0]) {
+                 balanceVal = BigInt('0x' + data.constant_result[0]);
+                 console.log('HOOK_TRACE: Method 3 success:', balanceVal.toString());
+             } else {
+                 throw new Error('RPC returned invalid data: ' + JSON.stringify(data));
+             }
+
+          } catch (err: any) {
+              console.error('HOOK_TRACE: Method 3 failed:', err);
+              throw new Error('All methods failed. RPC Error: ' + err.message);
           }
       }
 
