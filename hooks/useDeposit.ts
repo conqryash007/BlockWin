@@ -459,6 +459,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 
     try {
       let activeAddress = tronAddress;
+      // Access tronWeb safely
       const tronWeb = (wallet?.adapter as any)?.tronWeb || window.tronWeb || (window.tronLink as any)?.tronWeb;
       
       // Fallback: Try to get address from tronWeb directly if adapter is not ready
@@ -479,14 +480,14 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       if (!tronWeb) {
         console.warn('HOOK_TRACE: TronWeb missing');
         setDebugStatus('TronWeb Missing');
+        setTronBalance(BigInt(0));
         return;
       }
 
       // Relaxed check: Only warn if not ready, but proceed to try fetching
       if (!tronWeb.ready) {
          console.warn('HOOK_TRACE: TronWeb not ready, but attempting fetch...');
-         // setDebugStatus('Warn: Not Ready'); 
-         // Don't return, just warn
+         // If totally not ready, might return
       }
 
       console.log('HOOK_TRACE: Fetching contract at:', tokenAddress);
@@ -494,36 +495,27 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       // Log the node we are connected to
       const currentHost = (tronWeb as any).fullNode?.host || 'unknown';
       console.log('HOOK_TRACE: Connected to Tron Node:', currentHost);
-      setActiveDebugAddress(activeAddress || 'None');
       
-      // Use local ABI to avoid fetching from network which can fail
-      // TRC20 balanceOf has same signature as ERC20
-      const abi = CONTRACTS.ERC20.abi;
-      const contract = tronWeb.contract(abi, tokenAddress);
+      // Use .at() for dynamic loading which is often more reliable
+      const contract = await tronWeb.contract().at(tokenAddress);
       
       setDebugStatus('Calling balanceOf...');
       
-      // Attempt standard call first
       let balance;
-      try {
-        // Standard TronWeb: methods are attached to contract object
-        if (typeof (contract as any).balanceOf === 'function') {
-           balance = await (contract as any).balanceOf(activeAddress).call();
-        } 
-        // Fallback: sometimes under .methods
-        else if ((contract as any).methods && typeof (contract as any).methods.balanceOf === 'function') {
-           balance = await (contract as any).methods.balanceOf(activeAddress).call();
-        } else {
-           throw new Error('balanceOf method not found on contract object');
-        }
-      } catch (innerErr: any) {
-         console.warn('Standard call failed, trying alternative:', innerErr);
-         throw innerErr;
+      // TRC20 standard check
+      if (typeof contract.balanceOf === 'function') {
+         balance = await contract.balanceOf(activeAddress).call();
+      } else if (contract.methods?.balanceOf) {
+         balance = await contract.methods.balanceOf(activeAddress).call();
+      } else {
+         console.error('HOOK_TRACE: balanceOf not found on contract');
+         throw new Error('balanceOf method not found');
       }
       
       console.log('HOOK_TRACE: Raw balance result:', balance?.toString());
 
-      const finalBalance = BigInt(balance.toString());
+      // Handle hex or decimal result
+      const finalBalance = balance ? BigInt(balance.toString()) : BigInt(0);
       setTronBalance(finalBalance);
       setDebugStatus(`Done: ${finalBalance.toString()}`);
       setError(null);
@@ -532,9 +524,10 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
       setError(errorMessage);
       setDebugStatus(`Err: ${errorMessage.slice(0, 15)}...`);
-      setTronBalance(undefined);
+      // Don't clear balance on error, better to keep stale or 0? 0 is safer for "not loaded"
+      setTronBalance(undefined); 
     }
-  }, [network, isTronConnected, tronAddress, tokenAddress]);
+  }, [network, isTronConnected, tronAddress, tokenAddress, wallet]);
 
   // Effect to fetch Tron balance
   useEffect(() => {
