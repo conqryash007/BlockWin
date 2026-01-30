@@ -94,6 +94,13 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
       : (allowance !== undefined && allowance >= maxUint256 / BigInt(2));
   const hasSufficientBalance = balance !== undefined && balance >= parsedAmount;
 
+  // Refetch TRON allowance when deposit form is shown with TRON so we have fresh data (e.g. after approval)
+  useEffect(() => {
+    if (selectedNetwork === 'tron') {
+      refetchTronAllowance();
+    }
+  }, [selectedNetwork, refetchTronAllowance]);
+
   // Handle deposit success
   useEffect(() => {
     if (depositSuccess && isProcessing) {
