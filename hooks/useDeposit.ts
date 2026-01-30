@@ -657,7 +657,10 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
               
               const data = await response.json();
               
-              if (data.constant_result && data.constant_result[0]) {
+              if (data.balance) {
+                   balanceVal = BigInt(data.balance);
+                   console.log('HOOK_TRACE: Method 4 (V9) success:', balanceVal.toString());
+              } else if (data.constant_result && data.constant_result[0]) {
                    balanceVal = BigInt('0x' + data.constant_result[0]);
                    console.log('HOOK_TRACE: Method 4 success:', balanceVal.toString());
               } else {

@@ -43,65 +43,46 @@ export async function GET(req: NextRequest) {
 
 
 // ... (GET method remains same/unused)
-
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        // V8: Accept 'address' and 'token' (Base58) directly
         const { address, token } = body;
 
-        // Fallback for old V6 payload if needed, but V8 simplifies it
         if (!address || !token) {
-             // Check if old payload format
-             if (body.owner_address && body.contract_address && body.parameter) {
-                 // Forward legacy V6 payload directly
-                 // ... (Legacy code omitted for brevity unless needed, but let's stick to V8 cleaner path)
-             }
              return NextResponse.json({ error: 'Missing address or token' }, { status: 400 });
         }
 
-        // Initialize Server-Side TronWeb (No private key needed for reading)
+        // Initialize Server-Side TronWeb
         const tronWeb = new TronWeb({
             fullHost: 'https://api.trongrid.io',
             headers: { 'TRON-PRO-API-KEY': process.env.TRON_API_KEY || '' }
         });
-
-        // Convert to Hex on Server (Robust)
-        const ownerHex = tronWeb.address.toHex(address);
-        const tokenHex = tronWeb.address.toHex(token);
-
-        if (!ownerHex || !tokenHex) {
-            return NextResponse.json({ error: 'Invalid address format' }, { status: 400 });
+        
+        // V9: Use High-Level API (official logic)
+        // This automatically handles ABI encoding specifically for TRC20 'balanceOf'
+        try {
+            tronWeb.setAddress(address); // Set default address to avoid "owner_address" errors if any
+            
+            const contract = await tronWeb.contract().at(token);
+            
+            // Call balanceOf
+            const result = await contract.balanceOf(address).call();
+            
+            // Result is normally a BigNumber object or string in standard TronWeb
+            const balance = result.toString();
+            
+            return NextResponse.json({ 
+                balance: balance,
+                source: "V9_HighLevel"
+            });
+            
+        } catch (innerError: any) {
+            console.error('High-Level Call Error:', innerError);
+            throw new Error('Contract call failed: ' + innerError.message);
         }
 
-        const tronGridUrl = 'https://api.trongrid.io/wallet/triggerconstantcontract';
-        
-        const payload = {
-            owner_address: ownerHex,
-            contract_address: token, // API often accepts Base58 for contract, but hex is safer. Let's use Base58 for contract if that worked before, or usage. 
-            // Actually, triggerConstantContract API docs say contract_address can be hex or base58.
-            // But owner_address MUST be hex.
-            // Let's use the toHex result for owner.
-            
-            function_selector: 'balanceOf(address)',
-            parameter: '000000000000000000000000' + ownerHex.substring(2), // Pad to 64 chars
-            visible: true
-        };
-
-        const response = await fetch(tronGridUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'TRON-PRO-API-KEY': process.env.TRON_API_KEY || ''
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-        return NextResponse.json(data);
-
     } catch (error: any) {
-        console.error('Proxy Conversion Error:', error);
+        console.error('Proxy Error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
