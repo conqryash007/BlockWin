@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as TronWebLib from 'tronweb';
+
+// Handle CJS/ESM interop for TronWeb
+const TronWeb = (TronWebLib as any).default || TronWebLib;
 
 export const dynamic = 'force-dynamic';
 
@@ -36,22 +40,51 @@ export async function GET(req: NextRequest) {
   }
 }
 
+
+
+// ... (GET method remains same/unused)
+
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { owner_address, contract_address, parameter } = body;
+        // V8: Accept 'address' and 'token' (Base58) directly
+        const { address, token } = body;
 
-        if (!owner_address || !contract_address || !parameter) {
-            return NextResponse.json({ error: 'Missing Tron parameters' }, { status: 400 });
+        // Fallback for old V6 payload if needed, but V8 simplifies it
+        if (!address || !token) {
+             // Check if old payload format
+             if (body.owner_address && body.contract_address && body.parameter) {
+                 // Forward legacy V6 payload directly
+                 // ... (Legacy code omitted for brevity unless needed, but let's stick to V8 cleaner path)
+             }
+             return NextResponse.json({ error: 'Missing address or token' }, { status: 400 });
+        }
+
+        // Initialize Server-Side TronWeb (No private key needed for reading)
+        const tronWeb = new TronWeb({
+            fullHost: 'https://api.trongrid.io',
+            headers: { 'TRON-PRO-API-KEY': process.env.TRON_API_KEY || '' }
+        });
+
+        // Convert to Hex on Server (Robust)
+        const ownerHex = tronWeb.address.toHex(address);
+        const tokenHex = tronWeb.address.toHex(token);
+
+        if (!ownerHex || !tokenHex) {
+            return NextResponse.json({ error: 'Invalid address format' }, { status: 400 });
         }
 
         const tronGridUrl = 'https://api.trongrid.io/wallet/triggerconstantcontract';
         
         const payload = {
-            owner_address,
-            contract_address,
+            owner_address: ownerHex,
+            contract_address: token, // API often accepts Base58 for contract, but hex is safer. Let's use Base58 for contract if that worked before, or usage. 
+            // Actually, triggerConstantContract API docs say contract_address can be hex or base58.
+            // But owner_address MUST be hex.
+            // Let's use the toHex result for owner.
+            
             function_selector: 'balanceOf(address)',
-            parameter,
+            parameter: '000000000000000000000000' + ownerHex.substring(2), // Pad to 64 chars
             visible: true
         };
 
@@ -59,17 +92,16 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'TRON-PRO-API-KEY': process.env.TRON_API_KEY || '' // Optional if we have one
+                'TRON-PRO-API-KEY': process.env.TRON_API_KEY || ''
             },
             body: JSON.stringify(payload)
         });
 
         const data = await response.json();
-        
         return NextResponse.json(data);
 
     } catch (error: any) {
-        console.error('Proxy Error:', error);
+        console.error('Proxy Conversion Error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

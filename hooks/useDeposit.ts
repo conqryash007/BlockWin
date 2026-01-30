@@ -636,18 +636,17 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       }
 
       // METHOD 4: Server-Side Proxy (Ultimate Fallback)
-      // Bypasses CORS by going through our own backend
+      // Bypasses CORS and client-side conversion issues
       if (balanceVal === undefined) {
-          setDebugStatus(`Try M4 (Proxy)...`);
-          console.log('HOOK_TRACE: Attempting Method 4 (Proxy)...');
+          setDebugStatus(`Try M4 (Proxy V8)...`);
+          console.log('HOOK_TRACE: Attempting Method 4 (Proxy V8)...');
           try {
-              const ownerHex = tronWeb.address.toHex(activeAddress);
-              if (!ownerHex) throw new Error('Could not convert address to hex');
-
+              // V8 Change: Send Base58 addresses directly. 
+              // Do NOT use tronWeb.address.toHex() here as it might crash on mobile.
+              
               const payload = {
-                  owner_address: ownerHex,
-                  contract_address: tokenAddress,
-                  parameter: '000000000000000000000000' + ownerHex.substring(2)
+                  address: activeAddress, // Send Base58
+                  token: tokenAddress     // Send Base58
               };
 
               const response = await fetch('/api/proxy/tron-balance', {
@@ -657,6 +656,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
               });
               
               const data = await response.json();
+              
               if (data.constant_result && data.constant_result[0]) {
                    balanceVal = BigInt('0x' + data.constant_result[0]);
                    console.log('HOOK_TRACE: Method 4 success:', balanceVal.toString());
