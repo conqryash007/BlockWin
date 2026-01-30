@@ -223,10 +223,11 @@ Timestamp: ${new Date().toISOString()}`;
         const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
         if (injected?.ready) {
           const contract = await injected.contract().at(casinoAddress);
-          const txId = await (contract as any).deposit(tokenAddress, amount.toString()).send();
-          setDepositHash(txId);
+          const txIdRaw = await (contract as any).deposit(tokenAddress, amount.toString()).send();
+          const txId = typeof txIdRaw === 'string' ? txIdRaw : (txIdRaw?.txid ?? (txIdRaw as any)?.transaction?.txID);
+          if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
           toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-          return true;
+          return (typeof txId === 'string' ? txId : undefined) ?? true;
         }
 
         // No injected TronWeb (e.g. Trust Wallet via WalletConnect): build tx, sign via adapter, broadcast
@@ -261,7 +262,7 @@ Timestamp: ${new Date().toISOString()}`;
         const txId = (result as { txid?: string })?.txid;
         if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
         toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-        return true;
+        return txId ?? true;
       } catch (error: any) {
         console.error('Tron deposit error:', error);
         if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {

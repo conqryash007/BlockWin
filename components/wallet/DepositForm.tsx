@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
+import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
+import { createClient } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 interface DepositFormProps {
@@ -158,8 +160,48 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
 
       addLog('Step: Sending deposit…');
       toast.info('Please confirm the deposit...');
-      await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
+      const depositResult = await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
       addLog('Step: Deposit submitted');
+
+      // Tron: no webhook; notify server so it records the tx and credits balance (like EVM webhook does)
+      if (depositResult && selectedNetwork === 'tron') {
+        const tronTxId = typeof depositResult === 'string' ? depositResult : null;
+        if (tronTxId) {
+          try {
+            const supabase = createClient();
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.access_token) {
+              const depositAmount = amount ? parseFloat(amount) : 0;
+              const res = await fetch('/api/wallet/deposit', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                  txHash: tronTxId,
+                  amount: depositAmount,
+                  tokenAddress: tokenAddress,
+                  network: 'tron',
+                }),
+              });
+              const data = await res.json();
+              if (res.ok && data?.success) {
+                triggerBalanceRefresh();
+              } else if (!res.ok) {
+                console.warn('Tron deposit record failed:', data?.error);
+              }
+            }
+          } catch (err) {
+            console.warn('Failed to notify server of Tron deposit:', err);
+          }
+        }
+        setIsProcessing(false);
+        setIsSuccess(true);
+        refetchBalance();
+        toast.success('Deposit successful!');
+        if (onSuccess) onSuccess();
+      }
     } catch (error: any) {
       const msg = error?.message || 'Transaction failed';
       console.error('Deposit flow error:', error);
@@ -178,8 +220,10 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     approveUnlimited,
     tokenAddress,
     refetchAllowance,
+    refetchBalance,
     deposit,
     selectedNetwork,
+    onSuccess,
   ]);
 
   if (!token) return null;
