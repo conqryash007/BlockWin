@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { 
-  useWriteContract, 
-  useWaitForTransactionReceipt, 
-  useReadContract, 
+import {
+  useWriteContract,
+  useWaitForTransactionReceipt,
+  useReadContract,
   useAccount,
-  useSignMessage 
+  useSignMessage,
 } from 'wagmi';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { CONTRACTS, getActiveTronConfig } from '@/lib/contracts';
 import { toast } from 'sonner';
 import { maxUint256 } from 'viem';
@@ -29,6 +30,7 @@ function getReadOnlyTronWeb(): any {
 // Hook for depositing tokens into CasinoDeposit contract
 export function useDeposit() {
   const { address } = useAccount();
+  const { address: tronAddress, signMessage: signMessageTron } = useWallet();
   const [approveHash, setApproveHash] = useState<`0x${string}` | undefined>();
   const [depositHash, setDepositHash] = useState<`0x${string}` | undefined>();
 
@@ -43,14 +45,15 @@ export function useDeposit() {
     hash: depositHash,
   });
 
-  // Sign terms and conditions message
-  const signTerms = useCallback(async () => {
-    if (!address) {
-      toast.error('Please connect your wallet');
-      return null;
-    }
+  // Sign terms and conditions message (EVM via wagmi, Tron via adapter)
+  const signTerms = useCallback(
+    async (network: 'ethereum' | 'tron' = 'ethereum') => {
+      const activeAddress = network === 'tron' ? tronAddress : address;
+      if (!activeAddress) {
+        toast.error('Please connect your wallet');
+        return null;
+      }
 
-    try {
       const message = `BlockWin Casino - Terms Agreement
 
 I agree to the following terms:
@@ -59,17 +62,28 @@ I agree to the following terms:
 3. I accept the platform's terms of service
 4. This deposit is from my own funds
 
-Wallet: ${address}
+Wallet: ${activeAddress}
 Timestamp: ${new Date().toISOString()}`;
 
-      const signature = await signMessageAsync({ message });
-      return signature;
-    } catch (error: any) {
-      console.error('Signing error:', error);
-      toast.error('Failed to sign terms');
-      return null;
-    }
-  }, [address, signMessageAsync]);
+      try {
+        if (network === 'tron') {
+          const signature = await signMessageTron(message);
+          return signature ?? null;
+        }
+        const signature = await signMessageAsync({ message });
+        return signature;
+      } catch (error: any) {
+        console.error('Signing error:', error);
+        if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {
+          toast.error('Signature was rejected or cancelled');
+        } else {
+          toast.error('Failed to sign terms');
+        }
+        return null;
+      }
+    },
+    [address, tronAddress, signMessageAsync, signMessageTron]
+  );
 
   // Approve UNLIMITED token spending (one-time) - for USDT
   // Network-aware: uses wagmi for Ethereum, TronLink for Tron
@@ -239,8 +253,6 @@ Timestamp: ${new Date().toISOString()}`;
     depositHash,
   };
 }
-
-import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 
 // Hook to read token balance
 export function useTokenBalance(tokenAddress: string | undefined, network: 'ethereum' | 'tron' = 'ethereum') {

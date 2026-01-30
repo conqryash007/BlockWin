@@ -128,7 +128,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
       if (isFirstTime) {
         addLog('Step: Sign terms…');
         toast.info('Please sign the terms agreement...');
-        const signature = await signTerms();
+        const signature = await signTerms(selectedNetwork);
         if (!signature) {
           addLog('Error: Sign terms failed or cancelled');
           setDepositError('Sign terms failed or cancelled');

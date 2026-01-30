@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useWalletData } from '@/hooks/useWalletData';
 import { useGameHistory, GameSession } from '@/hooks/useGameHistory';
 import { useAccount } from 'wagmi';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -153,7 +154,9 @@ function GameHistoryRow({ game }: { game: GameSession }) {
 }
 
 export default function WalletPage() {
-  const { isConnected } = useAccount();
+  const { isConnected: isEvmConnected } = useAccount();
+  const { isAnyConnected } = useAuth();
+  const isConnected = isEvmConnected || isAnyConnected;
   const { stats, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useWalletData();
   const { games, isLoading: gamesLoading, hasMore, total: totalGames, loadMore, refetch: refetchGames } = useGameHistory({ limit: 20 });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
