@@ -271,8 +271,14 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         </div>
       </div>
 
-      {amount && !hasSufficientBalance && (
+      {amount && !hasSufficientBalance && !balanceError && (
         <p className="text-red-500 text-sm">Insufficient balance</p>
+      )}
+
+      {balanceError && (
+         <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20">
+             <p className="text-red-400 text-xs font-mono">{balanceError}</p>
+         </div>
       )}
 
       {/* Terms - only show on first time */}

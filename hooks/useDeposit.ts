@@ -493,39 +493,86 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 
       console.log('HOOK_TRACE: Fetching contract at:', tokenAddress);
       
-      // Use .at() for dynamic loading which is often more reliable
-      const contract = await tronWeb.contract().at(tokenAddress);
-      
-      let balance;
-      // TRC20 standard check
-      if (typeof contract.balanceOf === 'function') {
-         balance = await contract.balanceOf(activeAddress).call();
-      } else if (contract.methods?.balanceOf) {
-         balance = await contract.methods.balanceOf(activeAddress).call();
-      } else {
-         console.error('HOOK_TRACE: balanceOf not found on contract');
-         throw new Error('balanceOf method not found');
+      // Log connection details
+      try {
+          const host = tronWeb.fullNode.host;
+          console.log('HOOK_TRACE: Connected to node:', host);
+      } catch (e) {
+          console.warn('HOOK_TRACE: Could not read fullNode host');
       }
-      
-      console.log('HOOK_TRACE: Raw balance result:', balance?.toString());
 
-      // Handle hex or decimal result
-      const finalBalance = balance ? BigInt(balance.toString()) : BigInt(0);
-      setTronBalance(finalBalance);
-      setDebugStatus(`Done: ${finalBalance.toString()}`);
-      setError(null);
+      let balanceVal: bigint | undefined;
+
+      // METHOD 1: High-level Contract Object (Standard)
+      try {
+          const contract = await tronWeb.contract().at(tokenAddress);
+          if (typeof contract.balanceOf === 'function') {
+             const res = await contract.balanceOf(activeAddress).call();
+             balanceVal = BigInt(res.toString());
+             console.log('HOOK_TRACE: Method 1 success:', balanceVal.toString());
+          } else if (contract.methods?.balanceOf) {
+             const res = await contract.methods.balanceOf(activeAddress).call();
+             balanceVal = BigInt(res.toString());
+             console.log('HOOK_TRACE: Method 1 (alt) success:', balanceVal.toString());
+          }
+      } catch (err: any) {
+          console.warn('HOOK_TRACE: Method 1 failed:', err);
+      }
+
+      // METHOD 2: Low-level triggerConstantContract (Fallback)
+      if (balanceVal === undefined) {
+          console.log('HOOK_TRACE: Attempting Method 2 (triggerConstantContract)...');
+          try {
+              const parameter = [{ type: 'address', value: activeAddress }];
+              const res = await tronWeb.transactionBuilder.triggerConstantContract(
+                  tokenAddress,
+                  'balanceOf(address)',
+                  {},
+                  parameter,
+                  activeAddress
+              );
+              
+              if (res && res.constant_result && res.constant_result[0]) {
+                  // Result is hex string
+                  const hexVal = res.constant_result[0];
+                  // Parse hex to BigInt
+                  balanceVal = BigInt('0x' + hexVal);
+                  console.log('HOOK_TRACE: Method 2 success:', balanceVal.toString());
+              } else {
+                  throw new Error('Invalid response from triggerConstantContract');
+              }
+          } catch (err: any) {
+              console.error('HOOK_TRACE: Method 2 failed:', err);
+              throw new Error('All fetch methods failed: ' + (err.message || 'Unknown error'));
+          }
+      }
+
+      if (balanceVal !== undefined) {
+          setTronBalance(balanceVal);
+          setDebugStatus(`Done: ${balanceVal.toString()}`);
+          setError(null);
+      } else {
+          throw new Error('Balance could not be determined');
+      }
+
     } catch (error: any) {
       console.error('HOOK_TRACE: Error fetching Tron balance:', error);
       const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
       
-      // Retry on network errors or "contract not found" which might be temporary
+      // Retry logic
       if (retryCount < 5) {
           console.log(`HOOK_TRACE: Error occurred, retrying... (${retryCount})`);
           setTimeout(() => fetchTronBalance(retryCount + 1), 2000);
           return;
       }
 
-      setError(errorMessage);
+      // Readable error for user
+      let userError = "Failed to fetch balance.";
+      if (errorMessage.includes('Network')) userError = "Network Error: Check connection.";
+      if (errorMessage.includes('contract')) userError = "Contract Error: Token not found.";
+      if (errorMessage.includes('node')) userError = "Node Error: RPC unreachable.";
+      
+      setError(`${userError} (${errorMessage.slice(0, 20)}...)`);
       setDebugStatus(`Err: ${errorMessage.slice(0, 15)}...`);
       setTronBalance(undefined); 
     }
