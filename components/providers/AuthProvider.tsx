@@ -519,7 +519,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tronAddress,
       isTronConnected,
       isAnyConnected: isConnected || isTronConnected,
-      activeAddress: address || tronAddress
+      activeAddress: address || tronAddress,
+      usdtAllowanceTron,
+      refetchTronAllowance: fetchTronAllowance
     }}>
       {children}
     </AuthContext.Provider>

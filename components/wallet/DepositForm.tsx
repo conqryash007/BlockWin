@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
+import { useAuth } from '@/hooks/useAuth';
 import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 import { createClient } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -81,12 +82,16 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   );
 
   const { allowance, refetch: refetchAllowance } = useTokenAllowance(tokenAddress || '0x0000000000000000000000000000000000000000');
+  const { hasUnlimitedApproval: authHasUnlimitedApproval, refetchTronAllowance } = useAuth();
 
   // Parse amount
   const parsedAmount = amount && token ? parseUnits(amount, token.decimals) : BigInt(0);
-  
-  // Check if already has unlimited approval
-  const hasUnlimitedApproval = allowance !== undefined && allowance >= maxUint256 / BigInt(2);
+
+  // Check if already has unlimited approval (network-aware: use AuthContext for TRON, wagmi for EVM)
+  const hasUnlimitedApprovalLocal =
+    selectedNetwork === 'tron'
+      ? authHasUnlimitedApproval
+      : (allowance !== undefined && allowance >= maxUint256 / BigInt(2));
   const hasSufficientBalance = balance !== undefined && balance >= parsedAmount;
 
   // Handle deposit success
@@ -101,7 +106,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   }, [depositSuccess, isProcessing, refetchBalance, onSuccess]);
 
   // Determine if this is a first-time deposit for this token
-  const isFirstTime = !hasUnlimitedApproval;
+  const isFirstTime = !hasUnlimitedApprovalLocal;
 
   // Main deposit handler - SAME FLOW FOR ALL TOKENS
   const handleDeposit = useCallback(async () => {
@@ -154,7 +159,11 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         }
         addLog('Step: Approval submitted, waiting…');
         await new Promise(resolve => setTimeout(resolve, 2000));
-        await refetchAllowance();
+        if (selectedNetwork === 'tron') {
+          refetchTronAllowance();
+        } else {
+          await refetchAllowance();
+        }
         addLog('Step: Approval OK');
       }
 
@@ -220,6 +229,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     approveUnlimited,
     tokenAddress,
     refetchAllowance,
+    refetchTronAllowance,
     refetchBalance,
     deposit,
     selectedNetwork,

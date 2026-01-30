@@ -20,6 +20,8 @@ export interface AuthContextType {
   isTronConnected: boolean;
   isAnyConnected: boolean;
   activeAddress: string | null;
+  usdtAllowanceTron: bigint | undefined;
+  refetchTronAllowance: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
