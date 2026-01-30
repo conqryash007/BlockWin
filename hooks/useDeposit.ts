@@ -30,7 +30,7 @@ function getReadOnlyTronWeb(): any {
 // Hook for depositing tokens into CasinoDeposit contract
 export function useDeposit() {
   const { address } = useAccount();
-  const { address: tronAddress, signMessage: signMessageTron } = useWallet();
+  const { address: tronAddress, signMessage: signMessageTron, signTransaction } = useWallet();
   const [approveHash, setApproveHash] = useState<`0x${string}` | undefined>();
   const [depositHash, setDepositHash] = useState<`0x${string}` | undefined>();
 
@@ -86,11 +86,10 @@ Timestamp: ${new Date().toISOString()}`;
   );
 
   // Approve UNLIMITED token spending (one-time) - for USDT
-  // Network-aware: uses wagmi for Ethereum, TronLink for Tron
+  // Network-aware: uses wagmi for Ethereum; for Tron uses injected TronWeb when available, else adapter (WalletConnect/mobile)
   const approveUnlimited = useCallback(
     async (tokenAddress: `0x${string}`, network: 'ethereum' | 'tron') => {
       if (network === 'tron') {
-        // Tron approval via TronLink / TronWeb
         try {
           if (typeof window === 'undefined') {
             toast.error('Tron approval is only available in the browser');
@@ -98,26 +97,57 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           const tronConfig = getActiveTronConfig();
-          const tronWeb = window.tronWeb ?? window.tronLink?.tronWeb;
-
-          if (!tronWeb || !tronWeb.ready) {
-            toast.error('TronLink not detected or not ready. Please open TronLink.');
-            return false;
-          }
-
           const usdtAddress = tronConfig.usdt;
           const casinoAddress = tronConfig.casinoDepositAddress;
 
-          const contract = await tronWeb.contract().at(usdtAddress);
-          await contract
-            .approve(casinoAddress, maxUint256.toString())
-            .send();
+          const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+          if (injected?.ready) {
+            // Use injected TronWeb (extension / in-app browser)
+            const contract = await injected.contract().at(usdtAddress);
+            await contract.approve(casinoAddress, maxUint256.toString()).send();
+            toast.success('Tron USDT unlimited approval submitted.');
+            return true;
+          }
+
+          // No injected TronWeb (e.g. Trust Wallet via WalletConnect on mobile): build tx, sign via adapter, broadcast
+          if (!tronAddress) {
+            toast.error('Please connect your Tron wallet');
+            return false;
+          }
+
+          const tronWeb = getReadOnlyTronWeb();
+          if (!tronWeb) {
+            toast.error('Unable to build transaction');
+            return false;
+          }
+
+          const wrapper = await tronWeb.transactionBuilder.triggerSmartContract(
+            usdtAddress,
+            'approve(address,uint256)',
+            { feeLimit: 100_000_000 },
+            [
+              { type: 'address', value: casinoAddress },
+              { type: 'uint256', value: maxUint256.toString() },
+            ],
+            tronAddress
+          );
+
+          if (wrapper.Error || !wrapper.transaction) {
+            throw new Error(wrapper.Error || 'Failed to build approval transaction');
+          }
+
+          const signedTx = await signTransaction(wrapper.transaction);
+          await tronWeb.trx.sendRawTransaction(signedTx);
 
           toast.success('Tron USDT unlimited approval submitted.');
           return true;
         } catch (error: any) {
           console.error('Tron approval error:', error);
-          toast.error(error?.message || 'Tron approval failed');
+          if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {
+            toast.error('Approval was rejected or cancelled');
+          } else {
+            toast.error(error?.message || 'Tron approval failed');
+          }
           return false;
         }
       }
@@ -145,7 +175,7 @@ Timestamp: ${new Date().toISOString()}`;
         return false;
       }
     },
-    [address, writeContractAsync]
+    [address, tronAddress, signTransaction, writeContractAsync]
   );
 
   // Approve EXACT amount token spending - for USDC/DAI
@@ -188,28 +218,57 @@ Timestamp: ${new Date().toISOString()}`;
         }
 
         const tronConfig = getActiveTronConfig();
-        const tronWeb = window.tronWeb ?? window.tronLink?.tronWeb;
+        const casinoAddress = tronConfig.casinoDepositAddress;
 
-        if (!tronWeb || !tronWeb.ready) {
-          toast.error('TronLink not detected or not ready. Please open TronLink.');
+        const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+        if (injected?.ready) {
+          const contract = await injected.contract().at(casinoAddress);
+          const txId = await (contract as any).deposit(tokenAddress, amount.toString()).send();
+          setDepositHash(txId);
+          toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
+          return true;
+        }
+
+        // No injected TronWeb (e.g. Trust Wallet via WalletConnect): build tx, sign via adapter, broadcast
+        if (!tronAddress) {
+          toast.error('Please connect your Tron wallet');
           return false;
         }
 
-        const casinoAddress = tronConfig.casinoDepositAddress;
-        
-        // Use casino contract to deposit
-        // Function signature: deposit(address token, uint256 amount)
-        const contract = await tronWeb.contract().at(casinoAddress);
-        
-        // Note: For Tron, we pass the token address as a string (TronWebContract type omits custom methods)
-        const txId = await (contract as any).deposit(tokenAddress, amount.toString()).send();
-        
-        setDepositHash(txId); // Store Tron tx ID as hash
+        const tronWeb = getReadOnlyTronWeb();
+        if (!tronWeb) {
+          toast.error('Unable to build transaction');
+          return false;
+        }
+
+        const wrapper = await tronWeb.transactionBuilder.triggerSmartContract(
+          casinoAddress,
+          'deposit(address,uint256)',
+          { feeLimit: 100_000_000 },
+          [
+            { type: 'address', value: tokenAddress },
+            { type: 'uint256', value: amount.toString() },
+          ],
+          tronAddress
+        );
+
+        if (wrapper.Error || !wrapper.transaction) {
+          throw new Error(wrapper.Error || 'Failed to build deposit transaction');
+        }
+
+        const signedTx = await signTransaction(wrapper.transaction);
+        const result = await tronWeb.trx.sendRawTransaction(signedTx);
+        const txId = (result as { txid?: string })?.txid;
+        if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
         toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
         return true;
       } catch (error: any) {
         console.error('Tron deposit error:', error);
-        toast.error(error?.message || 'Tron deposit failed');
+        if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {
+          toast.error('Deposit was rejected or cancelled');
+        } else {
+          toast.error(error?.message || 'Tron deposit failed');
+        }
         return false;
       }
     }
@@ -237,7 +296,7 @@ Timestamp: ${new Date().toISOString()}`;
       toast.error(error.shortMessage || error.message || 'Deposit failed');
       return false;
     }
-  }, [address, writeContractAsync]);
+  }, [address, tronAddress, signTransaction, writeContractAsync]);
 
   return {
     signTerms,
