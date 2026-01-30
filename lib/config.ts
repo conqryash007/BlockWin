@@ -1,6 +1,6 @@
 import { http, createConfig, createStorage, cookieStorage } from 'wagmi'
 import { sepolia, mainnet } from 'wagmi/chains'
-import { walletConnect, injected } from 'wagmi/connectors'
+import { walletConnect, injected, metaMask } from 'wagmi/connectors'
 
 // ============================================
 // Network Configuration Helpers
@@ -66,6 +66,21 @@ const metadata = {
 }
 
 // ============================================
+// Mobile Detection Helper
+// ============================================
+export const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// Check if we're in a wallet's in-app browser
+export const isInWalletBrowser = () => {
+  if (typeof window === 'undefined') return false;
+  const ethereum = (window as any).ethereum;
+  return !!(ethereum?.isMetaMask || ethereum?.isTrust || ethereum?.isCoinbaseWallet || ethereum?.isRabby);
+}
+
+// ============================================
 // Wagmi Configuration
 // ============================================
 
@@ -87,10 +102,18 @@ export const config = createConfig({
     [mainnet.id]: http(MAINNET_RPC_URL),
   },
   connectors: [
+    // MetaMask connector - handles both desktop extension and mobile app via deep linking
+    metaMask({
+      dappMetadata: metadata,
+      // Enable SDK for mobile deep linking support
+      enableAnalytics: false,
+    }),
+    // Injected connector - for other wallet extensions and in-app browsers
     injected({
       // Shimming helps with mobile in-app browsers (MetaMask, Trust Wallet, etc.)
       shimDisconnect: true,
     }),
+    // WalletConnect - for mobile wallets via QR code or deep links
     walletConnect({ 
       projectId, 
       showQrModal: true,
@@ -99,6 +122,8 @@ export const config = createConfig({
       // This ensures mobile wallets know which chains to connect with
       qrModalOptions: {
         themeMode: 'dark',
+        // Enable desktop and mobile wallets
+        enableExplorer: true,
       },
     }),
   ],
