@@ -266,7 +266,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
   const [debugStatus, setDebugStatus] = useState<string>('Init');
   const [activeDebugAddress, setActiveDebugAddress] = useState<string>('');
 
-  // Tron Balance: use read-only TronWeb so WalletConnect/mobile wallets work (they don't inject window.tronWeb)
+  // Tron Balance: try API proxy first (works on mobile, no CORS), then fall back to client-side TronWeb
   const fetchTronBalance = useCallback(async () => {
     setDebugStatus('Fetching...');
     if (network !== 'tron') {
@@ -293,17 +293,39 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       return;
     }
 
+    // 1) Try same-origin API first (reliable on mobile, no CORS)
+    try {
+      setDebugStatus('API...');
+      const res = await fetch('/api/proxy/tron-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: activeAddress, token: tokenAddress }),
+      });
+      const data = await res.json();
+      if (res.ok && data != null && typeof data.balance !== 'undefined') {
+        const finalBalance = BigInt(data.balance);
+        setTronBalance(finalBalance);
+        setDebugStatus(`Done: ${finalBalance.toString()}`);
+        setError(null);
+        return;
+      }
+      if (!res.ok) {
+        throw new Error(data?.error || `API ${res.status}`);
+      }
+    } catch (apiErr: any) {
+      console.warn('Tron balance API failed, trying client:', apiErr?.message);
+    }
+
+    // 2) Fall back to client-side TronWeb (can fail on mobile due to CORS)
     try {
       const tronWeb = getReadOnlyTronWeb();
       if (!tronWeb) {
         setDebugStatus('TronWeb Missing');
         return;
       }
-
+      setDebugStatus('Calling balanceOf...');
       const abi = CONTRACTS.ERC20.abi;
       const contract = tronWeb.contract(abi, tokenAddress);
-      setDebugStatus('Calling balanceOf...');
-
       let balanceResult: { toString(): string };
       if (typeof contract.balanceOf === 'function') {
         balanceResult = await contract.balanceOf(activeAddress).call();
@@ -312,7 +334,6 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       } else {
         throw new Error('balanceOf method not found on contract object');
       }
-
       const finalBalance = BigInt(balanceResult.toString());
       setTronBalance(finalBalance);
       setDebugStatus(`Done: ${finalBalance.toString()}`);

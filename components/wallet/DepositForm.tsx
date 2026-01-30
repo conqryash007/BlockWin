@@ -1,20 +1,25 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
-import { SUPPORTED_TOKENS, TRON_TOKENS, TokenSymbol } from '@/lib/contracts';
+import { SUPPORTED_TOKENS, TRON_TOKENS } from '@/lib/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-  Loader2, 
-  ArrowRight, 
-  CheckCircle2
+import {
+  Loader2,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  AlertCircle,
+  Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
+import { cn } from '@/lib/utils';
 
 interface DepositFormProps {
   selectedNetwork: 'ethereum' | 'tron' | null;
@@ -33,7 +38,17 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [processLog, setProcessLog] = useState<string[]>([]);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const processLogRef = useRef<string[]>([]);
+
+  const addLog = useCallback((msg: string) => {
+    const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    processLogRef.current = [...processLogRef.current.slice(-19), line];
+    setProcessLog(processLogRef.current);
+  }, []);
+
   // Reset selected token when network changes if current token invalid
   useEffect(() => {
     if (!activeTokens[selectedToken as keyof typeof activeTokens]) {
@@ -52,12 +67,17 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     depositSuccess,
   } = useDeposit();
   
-  // Only run hooks if token exists
-  console.log('FORM_TRACE: DepositForm render', { selectedNetwork, tokenAddress });
-  const { balance, refetch: refetchBalance, error: balanceError, debugInfo } = useTokenBalance(
+  const {
+    balance,
+    refetch: refetchBalance,
+    error: balanceError,
+    debugInfo,
+    isLoading: balanceLoading,
+  } = useTokenBalance(
     tokenAddress || '0x0000000000000000000000000000000000000000',
     selectedNetwork || 'ethereum'
   );
+
   const { allowance, refetch: refetchAllowance } = useTokenAllowance(tokenAddress || '0x0000000000000000000000000000000000000000');
 
   // Parse amount
@@ -101,19 +121,23 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     }
 
     setIsProcessing(true);
+    setDepositError(null);
+    addLog('Deposit started');
 
     try {
-      // FIRST TIME: Sign terms + Approve unlimited
       if (isFirstTime) {
-        // Step 1: Sign terms
+        addLog('Step: Sign terms…');
         toast.info('Please sign the terms agreement...');
         const signature = await signTerms();
         if (!signature) {
+          addLog('Error: Sign terms failed or cancelled');
+          setDepositError('Sign terms failed or cancelled');
           setIsProcessing(false);
           return;
         }
+        addLog('Step: Sign terms OK');
 
-        // Step 2: Approve unlimited (network-specific approval popup)
+        addLog('Step: Approve token spending…');
         toast.info(
           selectedNetwork === 'tron'
             ? 'TronLink will open to approve USDT spending...'
@@ -121,20 +145,27 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         );
         const approved = await approveUnlimited(tokenAddress, selectedNetwork);
         if (!approved) {
+          addLog('Error: Approval failed or rejected');
+          setDepositError('Approval failed or rejected');
           setIsProcessing(false);
           return;
         }
+        addLog('Step: Approval submitted, waiting…');
         await new Promise(resolve => setTimeout(resolve, 2000));
         await refetchAllowance();
+        addLog('Step: Approval OK');
       }
 
-      // Step 3: Deposit
+      addLog('Step: Sending deposit…');
       toast.info('Please confirm the deposit...');
       await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
-      
+      addLog('Step: Deposit submitted');
     } catch (error: any) {
+      const msg = error?.message || 'Transaction failed';
       console.error('Deposit flow error:', error);
-      toast.error(error.message || 'Transaction failed');
+      addLog(`Error: ${msg}`);
+      setDepositError(msg);
+      toast.error(msg);
       setIsProcessing(false);
     }
   }, [
@@ -220,7 +251,99 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         </Select>
       </div>
 
-      {/* DEBUG INFO - To be removed later */}
+      {/* Status & Debug panel – expandable */}
+      <div className="rounded-lg border border-white/10 bg-black/20 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setDebugPanelOpen((o) => !o)}
+          className={cn(
+            'flex w-full items-center justify-between px-3 py-2.5 text-left text-sm font-medium transition-colors',
+            'hover:bg-white/5',
+            (balanceError || depositError) && 'text-amber-400'
+          )}
+        >
+          <span className="flex items-center gap-2">
+            {debugPanelOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+            Status &amp; debug
+            {(balanceError || depositError) && (
+              <AlertCircle className="h-4 w-4 text-amber-400" aria-hidden />
+            )}
+          </span>
+          <span className="text-muted-foreground text-xs">
+            {debugInfo?.status ?? '—'}
+          </span>
+        </button>
+        {debugPanelOpen && (
+          <div className="border-t border-white/10 px-3 py-2.5 space-y-2 text-xs font-mono">
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              <span className="text-muted-foreground">Status</span>
+              <span>{debugInfo?.status ?? '—'}</span>
+              <span className="text-muted-foreground">My address</span>
+              <span className="truncate" title={debugInfo?.userAddr}>
+                {debugInfo?.userAddr ?? '—'}
+              </span>
+              <span className="text-muted-foreground">Node</span>
+              <span className="truncate" title={debugInfo?.node}>
+                {debugInfo?.node ?? '—'}
+              </span>
+              <span className="text-muted-foreground">Token</span>
+              <span className="truncate" title={String(tokenAddress)}>
+                {tokenAddress ? `${String(tokenAddress).slice(0, 10)}…` : '—'}
+              </span>
+              <span className="text-muted-foreground">Balance</span>
+              <span>
+                {balanceLoading
+                  ? 'Loading…'
+                  : balance != null
+                    ? `${formatUnits(balance, token.decimals)} ${token.symbol}`
+                    : '—'}
+              </span>
+              <span className="text-muted-foreground">Balance error</span>
+              <span className={balanceError ? 'text-red-400' : 'text-muted-foreground'}>
+                {balanceError ?? 'None'}
+              </span>
+              <span className="text-muted-foreground">Last deposit error</span>
+              <span className={depositError ? 'text-red-400' : 'text-muted-foreground'}>
+                {depositError ?? 'None'}
+              </span>
+            </div>
+            {processLog.length > 0 && (
+              <div className="pt-2 border-t border-white/10">
+                <div className="text-muted-foreground mb-1">Process log</div>
+                <div className="max-h-24 overflow-y-auto space-y-0.5 text-[11px] text-muted-foreground">
+                  {processLog.map((line, i) => (
+                    <div key={i} className={line.startsWith('[', 0) && line.includes('Error') ? 'text-red-400' : ''}>
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {selectedNetwork === 'tron' && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 h-7 text-xs border-white/10"
+                onClick={() => refetchBalance()}
+                disabled={balanceLoading}
+              >
+                {balanceLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <Info className="h-3 w-3 mr-1" />
+                )}
+                Refetch balance
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Amount Input */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
