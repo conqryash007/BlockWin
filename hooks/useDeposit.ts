@@ -504,42 +504,47 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       let balanceVal: bigint | undefined;
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Contract Load Timeout')), 4000));
       
+      let skipLocalMethods = false;
+      // V7 Change: If no fullNode host, standard methods hang. SKIP THEM.
+      if (!tronWeb.fullNode?.host) {
+            console.warn('HOOK_TRACE: No fullNode host detected (Mobile). Skipping M1/M2 to avoid freeze.');
+            skipLocalMethods = true;
+            setDebugStatus('Node Unknown. Skipping to Proxy...');
+      }
+
       // METHOD 1: High-level Contract Object (Standard)
-      // Skip Method 1 if no fullNode host is detected (common on mobile injections causing hang)
-      let skipMethod1 = false;
-      try {
-           if (!tronWeb.fullNode?.host) {
-               console.warn('HOOK_TRACE: No fullNode host detected, skipping Method 1 to avoid hang.');
-               skipMethod1 = true;
-           }
-      } catch (e) { skipMethod1 = true; }
+      if (!skipLocalMethods) {
+        let skipMethod1 = false;
+        try {
+            if (!tronWeb.fullNode?.host) skipMethod1 = true;
+        } catch (e) { skipMethod1 = true; }
 
-      try {
-          if (!skipMethod1) {
-            setDebugStatus(`Try M1 std...`);
-            // RACE: Contract load vs Timeout
-            const contract: any = await Promise.race([
-                tronWeb.contract().at(tokenAddress),
-                timeoutPromise
-            ]);
+        try {
+            if (!skipMethod1) {
+                setDebugStatus(`Try M1 std...`);
+                const contract: any = await Promise.race([
+                    tronWeb.contract().at(tokenAddress),
+                    timeoutPromise
+                ]);
 
-            if (typeof contract.balanceOf === 'function') {
-                const res = await contract.balanceOf(activeAddress).call();
-                balanceVal = BigInt(res.toString());
-                console.log('HOOK_TRACE: Method 1 success:', balanceVal.toString());
-            } else if (contract.methods?.balanceOf) {
-                const res = await contract.methods.balanceOf(activeAddress).call();
-                balanceVal = BigInt(res.toString());
-                console.log('HOOK_TRACE: Method 1 (alt) success:', balanceVal.toString());
+                if (typeof contract.balanceOf === 'function') {
+                    const res = await contract.balanceOf(activeAddress).call();
+                    balanceVal = BigInt(res.toString());
+                    console.log('HOOK_TRACE: Method 1 success:', balanceVal.toString());
+                } else if (contract.methods?.balanceOf) {
+                    const res = await contract.methods.balanceOf(activeAddress).call();
+                    balanceVal = BigInt(res.toString());
+                    console.log('HOOK_TRACE: Method 1 (alt) success:', balanceVal.toString());
+                }
             }
-          }
-      } catch (err: any) {
-          console.warn('HOOK_TRACE: Method 1 failed or timed out:', err);
-          setDebugStatus(`M1 Failed: ${err.message?.slice(0, 10)}`);
+        } catch (err: any) {
+            console.warn('HOOK_TRACE: Method 1 failed or timed out:', err);
+            setDebugStatus(`M1 Failed: ${err.message?.slice(0, 10)}`);
+        }
       }
 
       // METHOD 2: Low-level triggerConstantContract (Fallback)
-      if (balanceVal === undefined) {
+      if (!skipLocalMethods && balanceVal === undefined) {
           setDebugStatus(`Try M2 (Low)...`);
           console.log('HOOK_TRACE: Attempting Method 2 (triggerConstantContract)...');
           try {
@@ -561,6 +566,8 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
               console.error('HOOK_TRACE: Method 2 failed:', err);
           }
       }
+
+
 
       // METHOD 3: Public RPC (Last Resort)
       // This bypasses the wallet's node entirely and uses public TronGrid
