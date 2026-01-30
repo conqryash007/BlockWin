@@ -225,7 +225,21 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         </Select>
       </div>
 
-      {/* DEBUG INFO - To be removed later */}
+      {/* DEBUG INFO - Temporary for mobile troubleshooting */}
+      {selectedNetwork === 'tron' && (
+          <details className="text-[10px] text-muted-foreground bg-black/20 p-2 rounded border border-white/5 mb-2">
+              <summary className="cursor-pointer font-bold hover:text-white">Debug Info (Click to expand)</summary>
+              <div className="mt-2 space-y-1 font-mono break-all">
+                  <p>Status: <span className="text-yellow-400">{debugInfo?.status || 'Idle'}</span></p>
+                  <p>Token: {tokenAddress}</p>
+                  <p>My Addr: {(debugInfo as any)?.userAddr || 'Unknown'}</p>
+                  <p>Node: {(debugInfo as any)?.node || 'Unknown'}</p>
+                  <p>Balance: {balance?.toString() || 'Undefined'}</p>
+                  <p>Error: <span className="text-red-400">{balanceError || 'None'}</span></p>
+              </div>
+          </details>
+      )}
+
       {/* Amount Input */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
