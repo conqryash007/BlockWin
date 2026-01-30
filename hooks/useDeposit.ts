@@ -441,10 +441,14 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
   const [activeDebugAddress, setActiveDebugAddress] = useState<string>('');
 
   // Tron Balance
-  const fetchTronBalance = useCallback(async () => {
-    setDebugStatus('Fetching...');
-    // Log initial state
-    console.log('HOOK_TRACE: fetchTronBalance called', { network, isTronConnected, tronAddress, tokenAddress });
+  const fetchTronBalance = useCallback(async (retryCount = 0) => {
+    setDebugStatus(`Fetching... (${retryCount})`);
+    
+    // Limits retries
+    if (retryCount > 10) {
+        setDebugStatus('Timeout');
+        return;
+    }
 
     if (network !== 'tron') {
       setDebugStatus('Not Tron');
@@ -452,7 +456,6 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
     }
 
     if (!tokenAddress) {
-       console.log('HOOK_TRACE: No token address');
        setDebugStatus('No Token Addr');
        return;
     }
@@ -465,41 +468,33 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       // Fallback: Try to get address from tronWeb directly if adapter is not ready
       if (!activeAddress && tronWeb && tronWeb.ready && tronWeb.defaultAddress?.base58) {
          activeAddress = tronWeb.defaultAddress.base58;
-         console.log('HOOK_TRACE: Using fallback address from TronWeb:', activeAddress);
       }
       
       setActiveDebugAddress(activeAddress || 'None');
 
       if (!activeAddress) {
-        console.log('HOOK_TRACE: No active Tron address found');
+        // If we have a wallet connected but no address yet, retry
+        if (isTronConnected) {
+             console.log('HOOK_TRACE: Connected but no address, retrying...', retryCount);
+             setTimeout(() => fetchTronBalance(retryCount + 1), 1000);
+             return;
+        }
         setDebugStatus('No User Addr');
         setTronBalance(undefined);
         return;
       }
 
-      if (!tronWeb) {
-        console.warn('HOOK_TRACE: TronWeb missing');
-        setDebugStatus('TronWeb Missing');
-        setTronBalance(BigInt(0));
+      if (!tronWeb || !tronWeb.ready) {
+        console.warn('HOOK_TRACE: TronWeb not ready/missing, retrying...', retryCount);
+        // Mobile often needs more time
+        setTimeout(() => fetchTronBalance(retryCount + 1), 1000);
         return;
-      }
-
-      // Relaxed check: Only warn if not ready, but proceed to try fetching
-      if (!tronWeb.ready) {
-         console.warn('HOOK_TRACE: TronWeb not ready, but attempting fetch...');
-         // If totally not ready, might return
       }
 
       console.log('HOOK_TRACE: Fetching contract at:', tokenAddress);
       
-      // Log the node we are connected to
-      const currentHost = (tronWeb as any).fullNode?.host || 'unknown';
-      console.log('HOOK_TRACE: Connected to Tron Node:', currentHost);
-      
       // Use .at() for dynamic loading which is often more reliable
       const contract = await tronWeb.contract().at(tokenAddress);
-      
-      setDebugStatus('Calling balanceOf...');
       
       let balance;
       // TRC20 standard check
@@ -522,9 +517,16 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
     } catch (error: any) {
       console.error('HOOK_TRACE: Error fetching Tron balance:', error);
       const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
+      
+      // Retry on network errors or "contract not found" which might be temporary
+      if (retryCount < 5) {
+          console.log(`HOOK_TRACE: Error occurred, retrying... (${retryCount})`);
+          setTimeout(() => fetchTronBalance(retryCount + 1), 2000);
+          return;
+      }
+
       setError(errorMessage);
       setDebugStatus(`Err: ${errorMessage.slice(0, 15)}...`);
-      // Don't clear balance on error, better to keep stale or 0? 0 is safer for "not loaded"
       setTronBalance(undefined); 
     }
   }, [network, isTronConnected, tronAddress, tokenAddress, wallet]);
@@ -533,8 +535,25 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
   useEffect(() => {
     if (network === 'tron') {
       fetchTronBalance();
-      const interval = setInterval(fetchTronBalance, 5000); // Poll faster for debugging
-      return () => clearInterval(interval);
+      const interval = setInterval(() => fetchTronBalance(0), 10000); // Poll slower, let retries handle initial
+      
+      // Listen for TronLink injection/ready events
+      const handleTronReady = () => {
+          console.log('HOOK_TRACE: Tron event received, refetching...');
+          fetchTronBalance(0);
+      };
+
+      window.addEventListener('tronLink#initialized', handleTronReady);
+      window.addEventListener('message', (e) => {
+          if (e.data.message && e.data.message.action == "tabReply") {
+              handleTronReady();
+          }
+      });
+
+      return () => {
+          clearInterval(interval);
+          window.removeEventListener('tronLink#initialized', handleTronReady);
+      };
     }
   }, [network, fetchTronBalance]);
 

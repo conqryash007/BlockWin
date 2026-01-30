@@ -39,7 +39,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     return (
-        <WalletProvider adapters={adapters} disableAutoConnectOnLoad={true}>
+        <WalletProvider adapters={adapters} disableAutoConnectOnLoad={false}>
             {children}
         </WalletProvider>
     );
