@@ -624,7 +624,41 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 
           } catch (err: any) {
               console.error('HOOK_TRACE: Method 3 failed:', err);
-              throw new Error('All methods failed. RPC Error: ' + err.message);
+              // Do not throw, let it fall through to M4
+          }
+      }
+
+      // METHOD 4: Server-Side Proxy (Ultimate Fallback)
+      // Bypasses CORS by going through our own backend
+      if (balanceVal === undefined) {
+          setDebugStatus(`Try M4 (Proxy)...`);
+          console.log('HOOK_TRACE: Attempting Method 4 (Proxy)...');
+          try {
+              const ownerHex = tronWeb.address.toHex(activeAddress);
+              if (!ownerHex) throw new Error('Could not convert address to hex');
+
+              const payload = {
+                  owner_address: ownerHex,
+                  contract_address: tokenAddress,
+                  parameter: '000000000000000000000000' + ownerHex.substring(2)
+              };
+
+              const response = await fetch('/api/proxy/tron-balance', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload)
+              });
+              
+              const data = await response.json();
+              if (data.constant_result && data.constant_result[0]) {
+                   balanceVal = BigInt('0x' + data.constant_result[0]);
+                   console.log('HOOK_TRACE: Method 4 success:', balanceVal.toString());
+              } else {
+                   throw new Error(data.error || 'Invalid proxy response');
+              }
+          } catch (err: any) {
+              console.error('HOOK_TRACE: Method 4 failed:', err);
+              throw new Error('All methods failed (M1-M4). Last Error: ' + err.message);
           }
       }
 
