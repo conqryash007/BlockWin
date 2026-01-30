@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +71,22 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
+  
+  // Track pending connection for Tron to avoid race conditions
+  const [pendingTronWallet, setPendingTronWallet] = useState<string | null>(null);
+
+  // Effect to trigger connection once the wallet is actually selected
+  useEffect(() => {
+      if (pendingTronWallet && currentTronWallet?.adapter.name === pendingTronWallet) {
+          console.log("Wallet selected, triggering connection:", pendingTronWallet);
+          setPendingTronWallet(null); // Reset pending state
+          connectTronWallet().catch(e => {
+              console.error("Tron connection failed:", e);
+              // @ts-ignore
+              toast.error(e?.message || "Failed to connect wallet");
+          });
+      }
+  }, [pendingTronWallet, currentTronWallet, connectTronWallet]);
   
   // Unified connection check
   const isAnyConnected = isConnected || isTronConnected;
@@ -201,20 +218,16 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                       return (
                           <button 
                               key={wallet.adapter.name}
-                              onClick={async () => {
+                              onClick={() => {
                                   if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                       selectTronWallet(wallet.adapter.name);
-                                  }
-                                  // If ready, connect. If not (and not WalletConnect), it might need extension install
-                                  // For WalletConnect, "readyState" logic is handled internally usually, but we Trigger connect
-                                  try {
-                                      console.log("Connecting to Tron wallet:", wallet.adapter.name);
-                                      await connectTronWallet();
-                                      console.log("Tron wallet connection initiated");
-                                  } catch (e) {
-                                      console.error("Tron connection error:", e);
-                                      // @ts-ignore
-                                      if (e?.message) console.error("Error message:", e.message);
+                                      setPendingTronWallet(wallet.adapter.name);
+                                  } else {
+                                      // Already selected, just connect
+                                      connectTronWallet().catch(e => {
+                                          console.error("Tron connection error:", e);
+                                          toast.error(e?.message || "Connection failed");
+                                      });
                                   }
                               }}
                               className={cn(
