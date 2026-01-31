@@ -25,7 +25,7 @@ interface UserWithData extends UserData {
 
 // Helper to check if address is a TRON address (starts with T or t, case-insensitive)
 const isTronAddress = (address: string): boolean => {
-  return address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
+  return !!address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
 };
 
 // Convert stored lowercase address to proper TRON Base58 format for display
