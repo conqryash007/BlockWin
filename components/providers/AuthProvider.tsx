@@ -301,7 +301,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (existingSession) {
         const sessionAddress = existingSession.user?.user_metadata?.wallet_address;
-        if (sessionAddress?.toLowerCase() === activeAddress.toLowerCase()) {
+        const sessionMatches = isTron
+          ? sessionAddress === activeAddress
+          : sessionAddress?.toLowerCase() === activeAddress?.toLowerCase();
+        if (sessionMatches) {
           setSession(existingSession);
           setUser(existingSession.user);
           setLoading(false);

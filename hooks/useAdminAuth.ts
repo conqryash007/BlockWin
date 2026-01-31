@@ -68,24 +68,11 @@ export function useAdminAuth(): UseAdminAuthReturn {
 
       // Check TRON wallet first if connected
       if (isTronConnected && tronAddress) {
-        // Check for address in original case first (new format for TRON addresses)
-        let { data, error: queryError } = await supabase
+        const { data, error: queryError } = await supabase
           .from('users')
           .select('id, wallet_address, is_admin')
           .eq('wallet_address', tronAddress)
           .single();
-
-        // If not found with original case, try lowercase for legacy addresses
-        if (queryError && queryError.code === 'PGRST116') {
-          const { data: legacyData, error: legacyError } = await supabase
-            .from('users')
-            .select('id, wallet_address, is_admin')
-            .eq('wallet_address', tronAddress.toLowerCase())
-            .single();
-          
-          data = legacyData;
-          queryError = legacyError;
-        }
 
         if (!queryError && data && data.is_admin === true) {
           foundAdmin = true;

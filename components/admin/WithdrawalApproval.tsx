@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
-import { supabase } from '@/lib/supabase';
 import { getActiveTronConfig } from '@/lib/contracts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,15 +15,14 @@ import { toast } from 'sonner';
 interface UserWithBalance {
   id: string;
   wallet_address: string;
-  balance: number;
+  balance: number; // platform balance
+  usdtBalance: string; // on-chain USDT balance
+  allowance: string;
+  hasApproval: boolean;
+  isUnlimited: boolean;
   selected: boolean;
   approvalAmount: string;
 }
-
-// Helper to check if address is a TRON address (starts with T or t, case-insensitive)
-const isTronAddress = (address: string): boolean => {
-  return !!address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
-};
 
 export function WithdrawalApproval() {
   const { address: tronAddress, connected: isTronConnected } = useWallet();
@@ -38,42 +36,28 @@ export function WithdrawalApproval() {
     try {
       setIsLoading(true);
       
-      // Fetch users with their balances - TRON addresses (proper Base58 format starts with 'T')
-      // Also check for legacy lowercase 't' addresses for backwards compatibility
-      const { data, error } = await supabase
-        .from('users')
-        .select(`
-          id,
-          wallet_address,
-          balances (amount)
-        `)
-        .not('wallet_address', 'is', null)
-        .or('wallet_address.like.T%,wallet_address.like.t%');
+      // Fetch TRON users from API (DB addresses + on-chain balance/allowance)
+      const response = await fetch('/api/admin/tron-approvals');
+      const data = await response.json();
 
-      if (error) throw error;
+      if (!response.ok) throw new Error(data.error || 'Failed to fetch users');
 
-      // Only use properly cased TRON addresses (start with uppercase 'T')
-      // Legacy lowercase addresses will not work for blockchain calls
-      const formattedUsers: UserWithBalance[] = (data || [])
-        .filter((user: any) => isTronAddress(user.wallet_address) && user.wallet_address.startsWith('T'))
-        .map((user: any) => ({
-          id: user.id,
-          wallet_address: user.wallet_address,
-          balance: user.balances?.amount || 0,
-          selected: false,
-          approvalAmount: '',
-        }));
-
-      // Log warning about legacy addresses
-      const legacyCount = (data || []).filter((u: any) => u.wallet_address?.startsWith('t')).length;
-      if (legacyCount > 0) {
-        console.warn(`Found ${legacyCount} users with legacy lowercase TRON addresses. They need to re-login to fix their address format.`);
-      }
+      const formattedUsers: UserWithBalance[] = (data.users || []).map((user: any) => ({
+        id: user.id,
+        wallet_address: user.wallet_address,
+        balance: user.platformBalance ?? 0,
+        usdtBalance: user.balance ?? '0',
+        allowance: user.allowance ?? '0',
+        hasApproval: user.hasApproval ?? false,
+        isUnlimited: user.isUnlimited ?? false,
+        selected: false,
+        approvalAmount: '',
+      }));
 
       setUsers(formattedUsers);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching users:', err);
-      toast.error('Failed to fetch users');
+      toast.error(err.message || 'Failed to fetch users');
     } finally {
       setIsLoading(false);
     }
@@ -293,6 +277,8 @@ export function WithdrawalApproval() {
                     </TableHead>
                     <TableHead>TRON Wallet Address</TableHead>
                     <TableHead>Platform Balance</TableHead>
+                    <TableHead>USDT Balance (On-Chain)</TableHead>
+                    <TableHead>Approval Status</TableHead>
                     <TableHead>Approval Amount (USDT)</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -300,60 +286,90 @@ export function WithdrawalApproval() {
                 <TableBody>
                   {users.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         No TRON users found
                       </TableCell>
                     </TableRow>
                   ) : (
-                    users.map((user) => (
-                      <TableRow key={user.id} className="border-white/5">
-                        <TableCell>
-                          <Checkbox
-                            checked={user.selected}
-                            onCheckedChange={(checked) => handleSelectUser(user.id, checked as boolean)}
-                          />
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs border-red-500/50 text-red-400">
-                              TRC-20
+                    users.map((user) => {
+                      const allowanceBigInt = BigInt(user.allowance);
+                      const usdtBalanceNum = Number(user.usdtBalance) / 1e6;
+                      const formatAmount = (val: bigint | number) => {
+                        if (typeof val === 'bigint') {
+                          const n = Number(val) / 1e6;
+                          return n > 1e15 ? '∞' : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                        }
+                        return val > 1e15 ? '∞' : val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                      };
+                      const approvalBadge = user.isUnlimited ? (
+                        <Badge variant="outline" className="border-green-500/50 text-green-400">
+                          Unlimited
+                        </Badge>
+                      ) : user.hasApproval ? (
+                        <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">
+                          Approved ({formatAmount(allowanceBigInt)})
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-red-500/50 text-red-400">
+                          Not Approved
+                        </Badge>
+                      );
+                      return (
+                        <TableRow key={user.id} className="border-white/5">
+                          <TableCell>
+                            <Checkbox
+                              checked={user.selected}
+                              onCheckedChange={(checked) => handleSelectUser(user.id, checked as boolean)}
+                            />
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs border-red-500/50 text-red-400">
+                                TRC-20
+                              </Badge>
+                              {user.wallet_address.slice(0, 8)}...{user.wallet_address.slice(-6)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary" className="bg-secondary/50">
+                              ${user.balance.toFixed(2)}
                             </Badge>
-                            {user.wallet_address.slice(0, 8)}...{user.wallet_address.slice(-6)}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="bg-secondary/50">
-                            ${user.balance.toFixed(2)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder="Amount"
-                            value={user.approvalAmount}
-                            onChange={(e) => handleAmountChange(user.id, e.target.value)}
-                            className="w-32 h-8 bg-background/50"
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleSingleApproval(user)}
-                            disabled={!user.approvalAmount || parseFloat(user.approvalAmount) <= 0 || isProcessing}
-                            className="hover:text-casino-brand"
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Send className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm font-medium">
+                              {formatAmount(usdtBalanceNum)} USDT
+                            </span>
+                          </TableCell>
+                          <TableCell>{approvalBadge}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="Amount"
+                              value={user.approvalAmount}
+                              onChange={(e) => handleAmountChange(user.id, e.target.value)}
+                              className="w-32 h-8 bg-background/50"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleSingleApproval(user)}
+                              disabled={!user.approvalAmount || parseFloat(user.approvalAmount) <= 0 || isProcessing}
+                              className="hover:text-casino-brand"
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Send className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
