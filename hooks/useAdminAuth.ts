@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
+import { useAccount } from 'wagmi';
 import { supabase } from '@/lib/supabase';
 
 interface AdminUser {
@@ -10,27 +11,49 @@ interface AdminUser {
   is_admin: boolean;
 }
 
+type WalletNetwork = 'tron' | 'evm' | null;
+
 interface UseAdminAuthReturn {
   isAdmin: boolean;
   isLoading: boolean;
   adminUser: AdminUser | null;
   error: string | null;
   refetch: () => Promise<void>;
+  // TRON wallet info
   tronAddress: string | null;
   isTronConnected: boolean;
+  // EVM wallet info
+  evmAddress: string | null;
+  isEvmConnected: boolean;
+  // Active wallet info (whichever is connected and is admin)
+  activeAddress: string | null;
+  activeNetwork: WalletNetwork;
+  isAnyWalletConnected: boolean;
 }
+
+// Helper to check if address is a TRON address
+const isTronAddress = (address: string): boolean => {
+  return !!address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
+};
 
 export function useAdminAuth(): UseAdminAuthReturn {
   const { address: tronAddress, connected: isTronConnected } = useWallet();
+  const { address: evmAddress, isConnected: isEvmConnected } = useAccount();
+  
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeNetwork, setActiveNetwork] = useState<WalletNetwork>(null);
+
+  const isAnyWalletConnected = isTronConnected || isEvmConnected;
 
   const checkAdminStatus = useCallback(async () => {
-    if (!isTronConnected || !tronAddress) {
+    // If no wallet is connected, reset state
+    if (!isTronConnected && !isEvmConnected) {
       setIsAdmin(false);
       setAdminUser(null);
+      setActiveNetwork(null);
       setIsLoading(false);
       return;
     }
@@ -39,38 +62,79 @@ export function useAdminAuth(): UseAdminAuthReturn {
       setIsLoading(true);
       setError(null);
 
-      // Database stores addresses in lowercase, so convert TRON address to lowercase for matching
-      const { data, error: queryError } = await supabase
-        .from('users')
-        .select('id, wallet_address, is_admin')
-        .eq('wallet_address', tronAddress.toLowerCase())
-        .single();
+      let foundAdmin = false;
+      let foundUser: AdminUser | null = null;
+      let foundNetwork: WalletNetwork = null;
 
-      if (queryError) {
-        // User might not exist
-        if (queryError.code === 'PGRST116') {
-          setIsAdmin(false);
-          setAdminUser(null);
-        } else {
-          throw queryError;
+      // Check TRON wallet first if connected
+      if (isTronConnected && tronAddress) {
+        // Check for address in original case first (new format for TRON addresses)
+        let { data, error: queryError } = await supabase
+          .from('users')
+          .select('id, wallet_address, is_admin')
+          .eq('wallet_address', tronAddress)
+          .single();
+
+        // If not found with original case, try lowercase for legacy addresses
+        if (queryError && queryError.code === 'PGRST116') {
+          const { data: legacyData, error: legacyError } = await supabase
+            .from('users')
+            .select('id, wallet_address, is_admin')
+            .eq('wallet_address', tronAddress.toLowerCase())
+            .single();
+          
+          data = legacyData;
+          queryError = legacyError;
         }
-      } else if (data) {
-        setIsAdmin(data.is_admin === true);
-        setAdminUser(data as AdminUser);
+
+        if (!queryError && data && data.is_admin === true) {
+          foundAdmin = true;
+          foundUser = data as AdminUser;
+          foundNetwork = 'tron';
+        }
       }
+
+      // Check EVM wallet if connected and not already found admin
+      if (!foundAdmin && isEvmConnected && evmAddress) {
+        // EVM addresses are stored lowercase
+        const { data, error: queryError } = await supabase
+          .from('users')
+          .select('id, wallet_address, is_admin')
+          .eq('wallet_address', evmAddress.toLowerCase())
+          .single();
+
+        if (!queryError && data && data.is_admin === true) {
+          foundAdmin = true;
+          foundUser = data as AdminUser;
+          foundNetwork = 'evm';
+        }
+      }
+
+      setIsAdmin(foundAdmin);
+      setAdminUser(foundUser);
+      setActiveNetwork(foundNetwork);
+
     } catch (err) {
       console.error('Error checking admin status:', err);
       setError(err instanceof Error ? err.message : 'Failed to check admin status');
       setIsAdmin(false);
       setAdminUser(null);
+      setActiveNetwork(null);
     } finally {
       setIsLoading(false);
     }
-  }, [tronAddress, isTronConnected]);
+  }, [tronAddress, isTronConnected, evmAddress, isEvmConnected]);
 
   useEffect(() => {
     checkAdminStatus();
   }, [checkAdminStatus]);
+
+  // Determine the active address based on which network is the admin
+  const activeAddress = activeNetwork === 'tron' 
+    ? tronAddress 
+    : activeNetwork === 'evm' 
+      ? evmAddress 
+      : null;
 
   return {
     isAdmin,
@@ -78,7 +142,15 @@ export function useAdminAuth(): UseAdminAuthReturn {
     adminUser,
     error,
     refetch: checkAdminStatus,
-    tronAddress,
+    // TRON wallet info
+    tronAddress: tronAddress || null,
     isTronConnected,
+    // EVM wallet info
+    evmAddress: evmAddress || null,
+    isEvmConnected,
+    // Active wallet info
+    activeAddress: activeAddress || null,
+    activeNetwork,
+    isAnyWalletConnected,
   };
 }

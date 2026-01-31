@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
+import { useConnect } from 'wagmi';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,18 +14,47 @@ interface AdminGateProps {
 }
 
 export function AdminGate({ children }: AdminGateProps) {
-  const { wallets, select, connect, connected: isTronConnected } = useWallet();
-  const { isAdmin, isLoading, error, tronAddress } = useAdminAuth();
+  // TRON wallet
+  const { wallets: tronWallets, select: selectTron, connect: connectTron, connected: isTronConnected } = useWallet();
+  // EVM wallet
+  const { connectors: evmConnectors, connectAsync: connectEvm } = useConnect();
+  
+  const { 
+    isAdmin, 
+    isLoading, 
+    error, 
+    tronAddress, 
+    evmAddress,
+    isAnyWalletConnected,
+    activeNetwork,
+    activeAddress 
+  } = useAdminAuth();
+  
   const [showConnectors, setShowConnectors] = useState(false);
+  const [walletType, setWalletType] = useState<'tron' | 'evm' | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  const handleConnect = async (walletName: string) => {
+  const handleConnectTron = async (walletName: string) => {
     try {
       setIsConnecting(true);
-      select(walletName as any);
-      await connect();
+      selectTron(walletName as any);
+      await connectTron();
     } catch (err) {
-      console.error('Failed to connect:', err);
+      console.error('Failed to connect TRON wallet:', err);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleConnectEvm = async (connectorId: string) => {
+    try {
+      setIsConnecting(true);
+      const connector = evmConnectors.find(c => c.id === connectorId || c.name === connectorId);
+      if (connector) {
+        await connectEvm({ connector });
+      }
+    } catch (err) {
+      console.error('Failed to connect EVM wallet:', err);
     } finally {
       setIsConnecting(false);
     }
@@ -45,7 +75,7 @@ export function AdminGate({ children }: AdminGateProps) {
   }
 
   // Not connected state
-  if (!isTronConnected) {
+  if (!isAnyWalletConnected) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="w-full max-w-md bg-casino-panel border-white/10">
@@ -55,26 +85,45 @@ export function AdminGate({ children }: AdminGateProps) {
             </div>
             <CardTitle className="text-2xl">Admin Access Required</CardTitle>
             <CardDescription>
-              Connect your TRON admin wallet to access the dashboard
+              Connect your admin wallet to access the dashboard
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4">
             {!showConnectors ? (
-              <Button
-                variant="casino"
-                size="lg"
-                className="w-full"
-                onClick={() => setShowConnectors(true)}
-              >
-                <Wallet className="mr-2 h-5 w-5" />
-                Connect TRON Wallet
-              </Button>
-            ) : (
+              <div className="w-full space-y-3">
+                <Button
+                  variant="casino"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => { setShowConnectors(true); setWalletType('tron'); }}
+                >
+                  <Wallet className="mr-2 h-5 w-5" />
+                  Connect TRON Wallet
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => { setShowConnectors(true); setWalletType('evm'); }}
+                >
+                  <Wallet className="mr-2 h-5 w-5" />
+                  Connect EVM Wallet
+                </Button>
+              </div>
+            ) : walletType === 'tron' ? (
               <div className="w-full space-y-2">
-                {wallets.map((wallet) => (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mb-2"
+                  onClick={() => { setShowConnectors(false); setWalletType(null); }}
+                >
+                  ← Back
+                </Button>
+                {tronWallets.map((wallet) => (
                   <button
                     key={wallet.adapter.name}
-                    onClick={() => handleConnect(wallet.adapter.name)}
+                    onClick={() => handleConnectTron(wallet.adapter.name)}
                     disabled={isConnecting}
                     className={cn(
                       "group relative flex items-center w-full p-3 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300",
@@ -93,9 +142,41 @@ export function AdminGate({ children }: AdminGateProps) {
                   </button>
                 ))}
               </div>
+            ) : (
+              <div className="w-full space-y-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mb-2"
+                  onClick={() => { setShowConnectors(false); setWalletType(null); }}
+                >
+                  ← Back
+                </Button>
+                {evmConnectors.map((connector) => (
+                  <button
+                    key={connector.id}
+                    onClick={() => handleConnectEvm(connector.id)}
+                    disabled={isConnecting}
+                    className={cn(
+                      "group relative flex items-center w-full p-3 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300",
+                      isConnecting && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center mr-4 bg-white/10">
+                      {connector.icon ? (
+                        <img src={connector.icon} alt={connector.name} className="w-6 h-6" />
+                      ) : (
+                        <Wallet className="w-5 h-5 text-white" />
+                      )}
+                    </div>
+                    <span className="font-medium text-sm text-white">{connector.name}</span>
+                    <ChevronRight className="ml-auto w-5 h-5 text-white/30" />
+                  </button>
+                ))}
+              </div>
             )}
             <p className="text-xs text-muted-foreground text-center">
-              Only authorized TRON admin wallets can access this area
+              Only authorized admin wallets can access this area
             </p>
           </CardContent>
         </Card>
@@ -129,6 +210,9 @@ export function AdminGate({ children }: AdminGateProps) {
 
   // Not admin state
   if (!isAdmin) {
+    const connectedAddress = tronAddress || evmAddress;
+    const networkLabel = isTronConnected ? 'TRON' : 'EVM';
+    
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="w-full max-w-md bg-casino-panel border-red-500/20">
@@ -138,7 +222,7 @@ export function AdminGate({ children }: AdminGateProps) {
             </div>
             <CardTitle className="text-2xl text-red-400">Access Denied</CardTitle>
             <CardDescription className="text-red-300/70">
-              Your TRON wallet ({tronAddress?.slice(0, 6)}...{tronAddress?.slice(-4)}) is not authorized to access the admin dashboard.
+              Your {networkLabel} wallet ({connectedAddress?.slice(0, 6)}...{connectedAddress?.slice(-4)}) is not authorized to access the admin dashboard.
               Please contact the platform administrator if you believe this is an error.
             </CardDescription>
           </CardHeader>

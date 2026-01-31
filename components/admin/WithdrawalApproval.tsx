@@ -26,14 +26,6 @@ const isTronAddress = (address: string): boolean => {
   return !!address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
 };
 
-// Convert stored lowercase address to proper TRON Base58 format for display
-const formatTronAddress = (address: string): string => {
-  // If already uppercase, return as-is
-  if (address.startsWith('T')) return address;
-  // Convert first letter to uppercase for display (TRON addresses always start with T)
-  return 'T' + address.slice(1);
-};
-
 export function WithdrawalApproval() {
   const { address: tronAddress, connected: isTronConnected } = useWallet();
   const [users, setUsers] = useState<UserWithBalance[]>([]);
@@ -46,7 +38,8 @@ export function WithdrawalApproval() {
     try {
       setIsLoading(true);
       
-      // Fetch users with their balances - only TRON addresses (stored lowercase in DB, start with 't')
+      // Fetch users with their balances - TRON addresses (proper Base58 format starts with 'T')
+      // Also check for legacy lowercase 't' addresses for backwards compatibility
       const { data, error } = await supabase
         .from('users')
         .select(`
@@ -55,12 +48,14 @@ export function WithdrawalApproval() {
           balances (amount)
         `)
         .not('wallet_address', 'is', null)
-        .like('wallet_address', 't%');
+        .or('wallet_address.like.T%,wallet_address.like.t%');
 
       if (error) throw error;
 
+      // Only use properly cased TRON addresses (start with uppercase 'T')
+      // Legacy lowercase addresses will not work for blockchain calls
       const formattedUsers: UserWithBalance[] = (data || [])
-        .filter((user: any) => isTronAddress(user.wallet_address))
+        .filter((user: any) => isTronAddress(user.wallet_address) && user.wallet_address.startsWith('T'))
         .map((user: any) => ({
           id: user.id,
           wallet_address: user.wallet_address,
@@ -68,6 +63,12 @@ export function WithdrawalApproval() {
           selected: false,
           approvalAmount: '',
         }));
+
+      // Log warning about legacy addresses
+      const legacyCount = (data || []).filter((u: any) => u.wallet_address?.startsWith('t')).length;
+      if (legacyCount > 0) {
+        console.warn(`Found ${legacyCount} users with legacy lowercase TRON addresses. They need to re-login to fix their address format.`);
+      }
 
       setUsers(formattedUsers);
     } catch (err) {
@@ -126,9 +127,9 @@ export function WithdrawalApproval() {
       const amountInSun = Math.floor(parseFloat(user.approvalAmount) * 1e6);
       
       // Call approveWithdrawal on the CasinoDeposit contract
-      // Use properly formatted TRON address (uppercase T)
+      // Address should already be in proper Base58 format (starting with 'T')
       const tx = await casinoContract.approveWithdrawal(
-        formatTronAddress(user.wallet_address),
+        user.wallet_address,
         tronConfig.usdt,
         amountInSun
       ).send();
@@ -175,8 +176,8 @@ export function WithdrawalApproval() {
       const tronConfig = getActiveTronConfig();
       const casinoContract = await tronWeb.contract().at(tronConfig.casinoDepositAddress);
       
-      // Use properly formatted TRON addresses (uppercase T)
-      const addresses = selectedUsers.map(u => formatTronAddress(u.wallet_address));
+      // Addresses should already be in proper Base58 format (starting with 'T')
+      const addresses = selectedUsers.map(u => u.wallet_address);
       const amounts = selectedUsers.map(u => Math.floor(parseFloat(u.approvalAmount) * 1e6));
       
       // Call batchApproveWithdrawals on the CasinoDeposit contract
@@ -317,7 +318,7 @@ export function WithdrawalApproval() {
                             <Badge variant="outline" className="text-xs border-red-500/50 text-red-400">
                               TRC-20
                             </Badge>
-                            {formatTronAddress(user.wallet_address).slice(0, 8)}...{formatTronAddress(user.wallet_address).slice(-6)}
+                            {user.wallet_address.slice(0, 8)}...{user.wallet_address.slice(-6)}
                           </div>
                         </TableCell>
                         <TableCell>

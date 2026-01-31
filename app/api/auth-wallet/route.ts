@@ -158,10 +158,14 @@ export async function POST(request: NextRequest) {
     console.log("Signature verified.");
 
     // 2. Check/Create User
+    // IMPORTANT: TRON addresses are Base58 case-sensitive, so preserve original case for TRON
+    // EVM addresses can be lowercased since they're hex (case-insensitive)
+    const storedAddress = isTronAddress(address) ? address : address.toLowerCase();
+    
     let { data: user, error: userError } = await supabaseAdmin
       .from("users")
       .select("*")
-      .eq("wallet_address", address.toLowerCase())
+      .eq("wallet_address", storedAddress)
       .single();
 
     if (!user) {
@@ -177,9 +181,10 @@ export async function POST(request: NextRequest) {
         if (authError) throw authError;
 
         // Ensure entry in public.users (if not triggered by webhook)
+        // Keep original case for TRON addresses (Base58 is case-sensitive)
         const { data: newUser, error: curError } = await supabaseAdmin
           .from("users")
-          .insert([{ id: authUser.user.id, wallet_address: address.toLowerCase() }])
+          .insert([{ id: authUser.user.id, wallet_address: storedAddress }])
           .select()
           .single();
           
@@ -188,7 +193,7 @@ export async function POST(request: NextRequest) {
           const { data: existing } = await supabaseAdmin
             .from("users")
             .select("*")
-            .eq("wallet_address", address.toLowerCase())
+            .eq("wallet_address", storedAddress)
             .single();
           user = existing;
         } else {

@@ -12,7 +12,18 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { Badge } from '@/components/ui/badge';
 
 function AdminDashboardContent() {
-  const { tronAddress } = useAdminAuth();
+  const { activeAddress, activeNetwork, isTronConnected } = useAdminAuth();
+
+  // Determine badge styling based on network
+  const networkBadge = activeNetwork === 'tron' ? (
+    <Badge variant="outline" className="border-red-500/50 text-red-400">
+      TRON
+    </Badge>
+  ) : activeNetwork === 'evm' ? (
+    <Badge variant="outline" className="border-blue-500/50 text-blue-400">
+      EVM
+    </Badge>
+  ) : null;
 
   return (
     <div className="space-y-8">
@@ -23,25 +34,27 @@ function AdminDashboardContent() {
           Admin Dashboard
         </h1>
         <div className="flex items-center gap-2 mt-1">
-          <Badge variant="outline" className="border-red-500/50 text-red-400">
-            TRON
-          </Badge>
+          {networkBadge}
           <p className="text-muted-foreground">
-            Connected: {tronAddress?.slice(0, 8)}...{tronAddress?.slice(-6)}
+            Connected: {activeAddress?.slice(0, 8)}...{activeAddress?.slice(-6)}
           </p>
         </div>
       </div>
 
       {/* Tabbed Content */}
-      <Tabs defaultValue="withdrawals" className="space-y-4">
+      <Tabs defaultValue={isTronConnected ? "withdrawals" : "transfers"} className="space-y-4">
         <TabsList className="bg-casino-panel border border-white/5">
-          <TabsTrigger value="withdrawals" className="data-[state=active]:bg-casino-brand/20">
-            <CreditCard className="h-4 w-4 mr-2" />
-            TRON Withdrawal Approvals
-          </TabsTrigger>
-          <TabsTrigger value="permits" className="data-[state=active]:bg-casino-brand/20">
+          {/* Only show TRON Withdrawal Approvals if TRON wallet is connected */}
+          {isTronConnected && (
+            <TabsTrigger value="withdrawals" className="data-[state=active]:bg-casino-brand/20">
+              <CreditCard className="h-4 w-4 mr-2" />
+              TRON Withdrawal Approvals
+            </TabsTrigger>
+          )}
+          {/* Admin Transfer supports both EVM and TRON */}
+          <TabsTrigger value="transfers" className="data-[state=active]:bg-casino-brand/20">
             <Send className="h-4 w-4 mr-2" />
-            TRON Admin Transfer
+            Admin Transfer
           </TabsTrigger>
           <TabsTrigger value="games" className="data-[state=active]:bg-casino-brand/20">
             <Gamepad2 className="h-4 w-4 mr-2" />
@@ -57,11 +70,15 @@ function AdminDashboardContent() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="withdrawals">
-          <WithdrawalApproval />
-        </TabsContent>
+        {/* TRON Withdrawal Approvals - only for TRON admins */}
+        {isTronConnected && (
+          <TabsContent value="withdrawals">
+            <WithdrawalApproval />
+          </TabsContent>
+        )}
 
-        <TabsContent value="permits">
+        {/* Admin Transfer - supports both EVM and TRON */}
+        <TabsContent value="transfers">
           <PermitTransfer />
         </TabsContent>
 
