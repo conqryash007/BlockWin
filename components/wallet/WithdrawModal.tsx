@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,8 @@ export function WithdrawModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
-  const { address } = useAccount();
+  // Use useAuth to support both EVM and Tron wallets
+  const { activeAddress: address } = useAuth();
   const supabase = createClient();
 
   const handleWithdraw = async () => {

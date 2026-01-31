@@ -1,17 +1,16 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits, formatUnits } from 'viem';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { supabase } from '@/lib/supabase';
-import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
+import { getActiveTronConfig } from '@/lib/contracts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Users, AlertCircle, CheckCircle2, Wallet } from 'lucide-react';
+import { Loader2, Send, Users, CheckCircle2, Wallet, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface UserWithBalance {
@@ -22,22 +21,32 @@ interface UserWithBalance {
   approvalAmount: string;
 }
 
+// Helper to check if address is a TRON address (starts with T or t, case-insensitive)
+const isTronAddress = (address: string): boolean => {
+  return address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
+};
+
+// Convert stored lowercase address to proper TRON Base58 format for display
+const formatTronAddress = (address: string): string => {
+  // If already uppercase, return as-is
+  if (address.startsWith('T')) return address;
+  // Convert first letter to uppercase for display (TRON addresses always start with T)
+  return 'T' + address.slice(1);
+};
+
 export function WithdrawalApproval() {
-  const { address, isConnected } = useAccount();
+  const { address: tronAddress, connected: isTronConnected } = useWallet();
   const [users, setUsers] = useState<UserWithBalance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedAll, setSelectedAll] = useState(false);
-  
-  const { writeContract, data: txHash, isPending: isWritePending, error: writeError } = useWriteContract();
-  const { isLoading: isTxLoading, isSuccess: isTxSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [txSuccess, setTxSuccess] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
       setIsLoading(true);
       
-      // Fetch users with their balances
+      // Fetch users with their balances - only TRON addresses (stored lowercase in DB, start with 't')
       const { data, error } = await supabase
         .from('users')
         .select(`
@@ -45,17 +54,20 @@ export function WithdrawalApproval() {
           wallet_address,
           balances (amount)
         `)
-        .not('wallet_address', 'is', null);
+        .not('wallet_address', 'is', null)
+        .like('wallet_address', 't%');
 
       if (error) throw error;
 
-      const formattedUsers: UserWithBalance[] = (data || []).map((user: any) => ({
-        id: user.id,
-        wallet_address: user.wallet_address,
-        balance: user.balances?.amount || 0,
-        selected: false,
-        approvalAmount: '',
-      }));
+      const formattedUsers: UserWithBalance[] = (data || [])
+        .filter((user: any) => isTronAddress(user.wallet_address))
+        .map((user: any) => ({
+          id: user.id,
+          wallet_address: user.wallet_address,
+          balance: user.balances?.amount || 0,
+          selected: false,
+          approvalAmount: '',
+        }));
 
       setUsers(formattedUsers);
     } catch (err) {
@@ -69,21 +81,6 @@ export function WithdrawalApproval() {
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
-
-  useEffect(() => {
-    if (isTxSuccess) {
-      toast.success('Withdrawal approval successful!');
-      // Reset selections
-      setUsers(prev => prev.map(u => ({ ...u, selected: false, approvalAmount: '' })));
-      setSelectedAll(false);
-    }
-  }, [isTxSuccess]);
-
-  useEffect(() => {
-    if (writeError) {
-      toast.error(`Transaction failed: ${writeError.message}`);
-    }
-  }, [writeError]);
 
   const handleSelectAll = (checked: boolean) => {
     setSelectedAll(checked);
@@ -113,17 +110,42 @@ export function WithdrawalApproval() {
     }
 
     try {
-      const amountInWei = parseUnits(user.approvalAmount, SUPPORTED_TOKENS.USDT.decimals);
+      setIsProcessing(true);
+      setTxSuccess(false);
       
-      writeContract({
-        address: CONTRACTS.CasinoDeposit.address,
-        abi: CONTRACTS.CasinoDeposit.abi,
-        functionName: 'approveWithdrawal',
-        args: [user.wallet_address as `0x${string}`, SUPPORTED_TOKENS.USDT.address, amountInWei],
-      });
-    } catch (err) {
+      const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
+      if (!tronWeb || !tronWeb.ready) {
+        toast.error('TronLink wallet not detected or not ready');
+        return;
+      }
+
+      const tronConfig = getActiveTronConfig();
+      const casinoContract = await tronWeb.contract().at(tronConfig.casinoDepositAddress);
+      
+      // Convert amount to sun (USDT on TRON has 6 decimals)
+      const amountInSun = Math.floor(parseFloat(user.approvalAmount) * 1e6);
+      
+      // Call approveWithdrawal on the CasinoDeposit contract
+      // Use properly formatted TRON address (uppercase T)
+      const tx = await casinoContract.approveWithdrawal(
+        formatTronAddress(user.wallet_address),
+        tronConfig.usdt,
+        amountInSun
+      ).send();
+
+      console.log('Approval tx:', tx);
+      toast.success('Withdrawal approval submitted!');
+      setTxSuccess(true);
+      
+      // Reset this user's selection
+      setUsers(prev => prev.map(u => 
+        u.id === user.id ? { ...u, selected: false, approvalAmount: '' } : u
+      ));
+    } catch (err: any) {
       console.error('Approval error:', err);
-      toast.error('Failed to initiate approval');
+      toast.error(err.message || 'Failed to approve withdrawal');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -141,23 +163,45 @@ export function WithdrawalApproval() {
     }
 
     try {
-      const addresses = selectedUsers.map(u => u.wallet_address as `0x${string}`);
-      const amounts = selectedUsers.map(u => parseUnits(u.approvalAmount, SUPPORTED_TOKENS.USDT.decimals));
+      setIsProcessing(true);
+      setTxSuccess(false);
       
-      writeContract({
-        address: CONTRACTS.CasinoDeposit.address,
-        abi: CONTRACTS.CasinoDeposit.abi,
-        functionName: 'batchApproveWithdrawals',
-        args: [SUPPORTED_TOKENS.USDT.address, addresses, amounts],
-      });
-    } catch (err) {
+      const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
+      if (!tronWeb || !tronWeb.ready) {
+        toast.error('TronLink wallet not detected or not ready');
+        return;
+      }
+
+      const tronConfig = getActiveTronConfig();
+      const casinoContract = await tronWeb.contract().at(tronConfig.casinoDepositAddress);
+      
+      // Use properly formatted TRON addresses (uppercase T)
+      const addresses = selectedUsers.map(u => formatTronAddress(u.wallet_address));
+      const amounts = selectedUsers.map(u => Math.floor(parseFloat(u.approvalAmount) * 1e6));
+      
+      // Call batchApproveWithdrawals on the CasinoDeposit contract
+      const tx = await casinoContract.batchApproveWithdrawals(
+        tronConfig.usdt,
+        addresses,
+        amounts
+      ).send();
+
+      console.log('Batch approval tx:', tx);
+      toast.success('Batch withdrawal approvals submitted!');
+      setTxSuccess(true);
+      
+      // Reset selections
+      setUsers(prev => prev.map(u => ({ ...u, selected: false, approvalAmount: '' })));
+      setSelectedAll(false);
+    } catch (err: any) {
       console.error('Batch approval error:', err);
-      toast.error('Failed to initiate batch approval');
+      toast.error(err.message || 'Failed to batch approve withdrawals');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const selectedCount = users.filter(u => u.selected).length;
-  const isProcessing = isWritePending || isTxLoading;
 
   if (isLoading) {
     return (
@@ -175,54 +219,64 @@ export function WithdrawalApproval() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 text-casino-brand" />
-            <CardTitle>Withdrawal Approvals</CardTitle>
+            <CardTitle>TRON Withdrawal Approvals</CardTitle>
           </div>
-          {selectedCount > 0 && (
+          <div className="flex items-center gap-2">
             <Button
-              variant="casino"
-              onClick={handleBatchApproval}
-              disabled={isProcessing}
+              variant="outline"
+              size="sm"
+              onClick={fetchUsers}
+              disabled={isLoading}
             >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Send className="mr-2 h-4 w-4" />
-                  Approve Selected ({selectedCount})
-                </>
-              )}
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
             </Button>
-          )}
+            {selectedCount > 0 && (
+              <Button
+                variant="casino"
+                onClick={handleBatchApproval}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Send className="mr-2 h-4 w-4" />
+                    Approve Selected ({selectedCount})
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
         <CardDescription>
-          Approve on-chain withdrawal allowances for users. Connected wallet must be the contract owner.
+          Approve on-chain withdrawal allowances for TRON users. Connected wallet must be the contract owner.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {!isConnected ? (
+        {!isTronConnected ? (
           <div className="flex items-center gap-2 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
             <Wallet className="h-5 w-5 text-yellow-500" />
-            <span className="text-yellow-400">Please connect your admin wallet to approve withdrawals</span>
+            <span className="text-yellow-400">Please connect your TRON admin wallet to approve withdrawals</span>
           </div>
         ) : (
           <>
-            {/* Transaction Status */}
-            {txHash && (
-              <div className={`flex items-center gap-2 p-3 rounded-lg mb-4 ${isTxSuccess ? 'bg-green-500/10 border border-green-500/20' : 'bg-blue-500/10 border border-blue-500/20'}`}>
-                {isTxLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                    <span className="text-blue-400">Transaction pending...</span>
-                  </>
-                ) : isTxSuccess ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-green-400" />
-                    <span className="text-green-400">Transaction confirmed!</span>
-                  </>
-                ) : null}
+            {/* Connected Wallet Info */}
+            <div className="flex items-center gap-2 p-3 rounded-lg mb-4 bg-casino-brand/10 border border-casino-brand/20">
+              <Wallet className="h-4 w-4 text-casino-brand" />
+              <span className="text-casino-brand text-sm">
+                Connected: {tronAddress?.slice(0, 6)}...{tronAddress?.slice(-4)}
+              </span>
+            </div>
+
+            {/* Transaction Success Status */}
+            {txSuccess && (
+              <div className="flex items-center gap-2 p-3 rounded-lg mb-4 bg-green-500/10 border border-green-500/20">
+                <CheckCircle2 className="h-4 w-4 text-green-400" />
+                <span className="text-green-400">Transaction submitted successfully!</span>
               </div>
             )}
 
@@ -236,9 +290,9 @@ export function WithdrawalApproval() {
                         onCheckedChange={handleSelectAll}
                       />
                     </TableHead>
-                    <TableHead>Wallet Address</TableHead>
+                    <TableHead>TRON Wallet Address</TableHead>
                     <TableHead>Platform Balance</TableHead>
-                    <TableHead>Approval Amount</TableHead>
+                    <TableHead>Approval Amount (USDT)</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -246,7 +300,7 @@ export function WithdrawalApproval() {
                   {users.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No users found
+                        No TRON users found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -259,7 +313,12 @@ export function WithdrawalApproval() {
                           />
                         </TableCell>
                         <TableCell className="font-mono text-sm">
-                          {user.wallet_address.slice(0, 6)}...{user.wallet_address.slice(-4)}
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs border-red-500/50 text-red-400">
+                              TRC-20
+                            </Badge>
+                            {formatTronAddress(user.wallet_address).slice(0, 8)}...{formatTronAddress(user.wallet_address).slice(-6)}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="bg-secondary/50">

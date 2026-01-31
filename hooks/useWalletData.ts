@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -32,7 +32,8 @@ export interface Transaction {
 }
 
 export function useWalletData() {
-  const { address, isConnected } = useAccount();
+  // Use useAuth to support both EVM (wagmi) and Tron wallets
+  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
   const [stats, setStats] = useState<WalletStats>({
     balance: 0,
     totalWagered: 0,

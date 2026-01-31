@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { supabase } from '@/lib/supabase';
 
 interface AdminUser {
@@ -16,17 +16,19 @@ interface UseAdminAuthReturn {
   adminUser: AdminUser | null;
   error: string | null;
   refetch: () => Promise<void>;
+  tronAddress: string | null;
+  isTronConnected: boolean;
 }
 
 export function useAdminAuth(): UseAdminAuthReturn {
-  const { address, isConnected } = useAccount();
+  const { address: tronAddress, connected: isTronConnected } = useWallet();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const checkAdminStatus = useCallback(async () => {
-    if (!isConnected || !address) {
+    if (!isTronConnected || !tronAddress) {
       setIsAdmin(false);
       setAdminUser(null);
       setIsLoading(false);
@@ -37,10 +39,11 @@ export function useAdminAuth(): UseAdminAuthReturn {
       setIsLoading(true);
       setError(null);
 
+      // Database stores addresses in lowercase, so convert TRON address to lowercase for matching
       const { data, error: queryError } = await supabase
         .from('users')
         .select('id, wallet_address, is_admin')
-        .eq('wallet_address', address.toLowerCase())
+        .eq('wallet_address', tronAddress.toLowerCase())
         .single();
 
       if (queryError) {
@@ -63,7 +66,7 @@ export function useAdminAuth(): UseAdminAuthReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [address, isConnected]);
+  }, [tronAddress, isTronConnected]);
 
   useEffect(() => {
     checkAdminStatus();
@@ -75,5 +78,7 @@ export function useAdminAuth(): UseAdminAuthReturn {
     adminUser,
     error,
     refetch: checkAdminStatus,
+    tronAddress,
+    isTronConnected,
   };
 }

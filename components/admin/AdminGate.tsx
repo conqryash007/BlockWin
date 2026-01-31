@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAccount, useConnect } from 'wagmi';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,10 +13,22 @@ interface AdminGateProps {
 }
 
 export function AdminGate({ children }: AdminGateProps) {
-  const { isConnected } = useAccount();
-  const { connectors, connect } = useConnect();
-  const { isAdmin, isLoading, error } = useAdminAuth();
+  const { wallets, select, connect, connected: isTronConnected } = useWallet();
+  const { isAdmin, isLoading, error, tronAddress } = useAdminAuth();
   const [showConnectors, setShowConnectors] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnect = async (walletName: string) => {
+    try {
+      setIsConnecting(true);
+      select(walletName as any);
+      await connect();
+    } catch (err) {
+      console.error('Failed to connect:', err);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   // Loading state
   if (isLoading) {
@@ -33,7 +45,7 @@ export function AdminGate({ children }: AdminGateProps) {
   }
 
   // Not connected state
-  if (!isConnected) {
+  if (!isTronConnected) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="w-full max-w-md bg-casino-panel border-white/10">
@@ -43,7 +55,7 @@ export function AdminGate({ children }: AdminGateProps) {
             </div>
             <CardTitle className="text-2xl">Admin Access Required</CardTitle>
             <CardDescription>
-              Connect your admin wallet to access the dashboard
+              Connect your TRON admin wallet to access the dashboard
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4">
@@ -55,29 +67,35 @@ export function AdminGate({ children }: AdminGateProps) {
                 onClick={() => setShowConnectors(true)}
               >
                 <Wallet className="mr-2 h-5 w-5" />
-                Connect Wallet
+                Connect TRON Wallet
               </Button>
             ) : (
               <div className="w-full space-y-2">
-                {connectors.map((connector) => (
+                {wallets.map((wallet) => (
                   <button
-                    key={connector.uid}
-                    onClick={() => connect({ connector })}
+                    key={wallet.adapter.name}
+                    onClick={() => handleConnect(wallet.adapter.name)}
+                    disabled={isConnecting}
                     className={cn(
-                      "group relative flex items-center w-full p-3 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300"
+                      "group relative flex items-center w-full p-3 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300",
+                      isConnecting && "opacity-50 cursor-not-allowed"
                     )}
                   >
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center mr-4 bg-white/10">
-                      <Wallet className="w-5 h-5 text-white" />
+                      {wallet.adapter.icon ? (
+                        <img src={wallet.adapter.icon} alt={wallet.adapter.name} className="w-6 h-6" />
+                      ) : (
+                        <Wallet className="w-5 h-5 text-white" />
+                      )}
                     </div>
-                    <span className="font-medium text-sm text-white">{connector.name}</span>
+                    <span className="font-medium text-sm text-white">{wallet.adapter.name}</span>
                     <ChevronRight className="ml-auto w-5 h-5 text-white/30" />
                   </button>
                 ))}
               </div>
             )}
             <p className="text-xs text-muted-foreground text-center">
-              Only authorized admin wallets can access this area
+              Only authorized TRON admin wallets can access this area
             </p>
           </CardContent>
         </Card>
@@ -120,7 +138,7 @@ export function AdminGate({ children }: AdminGateProps) {
             </div>
             <CardTitle className="text-2xl text-red-400">Access Denied</CardTitle>
             <CardDescription className="text-red-300/70">
-              Your wallet is not authorized to access the admin dashboard.
+              Your TRON wallet ({tronAddress?.slice(0, 6)}...{tronAddress?.slice(-4)}) is not authorized to access the admin dashboard.
               Please contact the platform administrator if you believe this is an error.
             </CardDescription>
           </CardHeader>

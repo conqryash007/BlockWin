@@ -8,7 +8,6 @@ import { MinesEducation } from "./MinesEducation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { useAccount } from "wagmi";
 import { triggerBalanceRefresh } from "@/hooks/usePlatformBalance";
 
 export type TileState = "hidden" | "safe" | "mine";
@@ -21,8 +20,8 @@ export interface Tile {
 }
 
 export function MinesGamePage() {
-  const { address } = useAccount();
-  const { login } = useAuth();
+  // Use useAuth to support both EVM and Tron wallets
+  const { activeAddress: address, login } = useAuth();
   const supabase = createClient();
 
   // Wallet / Balance State

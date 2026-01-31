@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -39,7 +39,8 @@ interface UseGameHistoryOptions {
 
 export function useGameHistory(options: UseGameHistoryOptions = {}) {
   const { limit = 20, gameType } = options;
-  const { address, isConnected } = useAccount();
+  // Use useAuth to support both EVM and Tron wallets
+  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
   const [games, setGames] = useState<GameSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

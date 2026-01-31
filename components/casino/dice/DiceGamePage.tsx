@@ -8,11 +8,10 @@ import { DiceEducation } from "./DiceEducation";
 import { createClient } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { useAccount } from "wagmi";
 
 export function DiceGamePage() {
-  const { address } = useAccount();
-  const { login } = useAuth();
+  // Use useAuth to support both EVM and Tron wallets
+  const { activeAddress: address, login } = useAuth();
   const supabase = createClient();
 
   // Game State

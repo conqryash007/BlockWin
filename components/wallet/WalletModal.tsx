@@ -174,19 +174,28 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
       <DialogContent className="w-[calc(100%-32px)] sm:max-w-[400px] rounded-xl p-0 overflow-hidden bg-[#0d0f11] border-white/10 text-white gap-0 shadow-2xl shadow-black/50">
         
         {/* Header Section */}
-        <div className="p-6 pb-2 relative">
+        <div className="p-6 pb-4 relative">
             <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-center flex flex-col items-center gap-4">
+            <DialogTitle className="text-xl font-bold text-center flex flex-col items-center gap-3">
                 <div className={cn(
-                    "w-16 h-16 rounded-2xl flex items-center justify-center border border-white/5 shadow-inner",
-                    isConnected ? "bg-casino-brand/10 text-casino-brand" : "bg-white/5 text-white/50"
+                    "w-14 h-14 rounded-2xl flex items-center justify-center border shadow-lg transition-all duration-300",
+                    isAnyConnected 
+                      ? "bg-gradient-to-br from-casino-brand/20 to-casino-brand/5 border-casino-brand/30 text-casino-brand" 
+                      : "bg-gradient-to-br from-white/10 to-white/5 border-white/10 text-white/70"
                 )}>
-                    <Wallet className="w-8 h-8" />
+                    <Wallet className="w-7 h-7" />
                 </div>
-                <div className="space-y-1">
-                    <h2 className="text-xl font-bold text-white">{isAnyConnected ? "Wallet Actions" : "Connect Wallet"}</h2>
+                <div className="space-y-0.5">
+                    <h2 className="text-xl font-bold text-white">
+                      {isAnyConnected ? "Wallet Actions" : selectedNetwork ? "Select Wallet" : "Connect Wallet"}
+                    </h2>
                     {!isAnyConnected && !selectedNetwork && (
-                         <p className="text-sm font-normal text-muted-foreground">Select your network first</p>
+                         <p className="text-sm font-normal text-muted-foreground">Choose your blockchain network</p>
+                    )}
+                    {!isAnyConnected && selectedNetwork && (
+                         <p className="text-sm font-normal text-muted-foreground">
+                           {selectedNetwork === 'ethereum' ? 'BSC / Ethereum wallets' : 'TRON wallets'}
+                         </p>
                     )}
                 </div>
             </DialogTitle>

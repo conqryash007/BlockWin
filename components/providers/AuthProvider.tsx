@@ -7,8 +7,6 @@ import { createClient } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { maxUint256 } from 'viem';
 import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
-import { TronWeb } from 'tronweb';
-
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { AuthContext, AuthContextType, AccountStatus } from '@/hooks/useAuth';
 
@@ -59,13 +57,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // State for Tron allowance
   const [usdtAllowanceTron, setUsdtAllowanceTron] = useState<bigint | undefined>(undefined);
 
-  // Fetch Tron Allowance: try API first (works on mobile/Trust Wallet, no CORS), then fall back to client TronWeb
+  // Fetch Tron Allowance: try API first (works on mobile/Trust Wallet, no CORS), then fall back to injected wallet
   const fetchTronAllowance = useCallback(async () => {
       if (!isTronConnected || !tronAddress) return;
 
       const tronConfig = getActiveTronConfig();
 
-      // 1) Try same-origin API first (reliable on mobile/Trust Wallet, no CORS)
+      // 1) Try injected wallet's TronWeb first (already configured, no extra requests)
+      try {
+          const injectedTronWeb = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+          if (injectedTronWeb && injectedTronWeb.ready) {
+              const usdtContract = await injectedTronWeb.contract().at(tronConfig.usdt);
+              const allowance = await usdtContract.allowance(tronAddress, tronConfig.casinoDepositAddress).call();
+              const allowValue = allowance?.toString ? BigInt(allowance.toString()) : BigInt(0);
+              setUsdtAllowanceTron(allowValue);
+              return;
+          }
+      } catch (injectedErr: any) {
+          console.warn('Injected TronWeb allowance failed, trying API:', injectedErr?.message);
+      }
+
+      // 2) Fall back to server-side API (reliable, uses API key)
       try {
           const res = await fetch('/api/proxy/tron-allowance', {
               method: 'POST',
@@ -82,35 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
           }
       } catch (apiErr: any) {
-          console.warn('Tron allowance API failed, trying client:', apiErr?.message);
+          console.warn('Tron allowance API failed:', apiErr?.message);
       }
 
-      // 2) Fall back to client-side TronWeb (can fail on mobile due to CORS)
-      const getReadOnlyTronWeb = () => {
-        if (typeof window === 'undefined') return null;
-        const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
-        if (injected && injected.ready) return injected;
-        return new TronWeb({ fullHost: tronConfig.fullHost });
-      };
-
-      try {
-          const tronWeb = getReadOnlyTronWeb();
-          if (!tronWeb) return;
-
-          const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
-          const allowance = await usdtContract.allowance(tronAddress, tronConfig.casinoDepositAddress).call();
-          const allowValue = allowance?.toString ? BigInt(allowance.toString()) : BigInt(0);
-          setUsdtAllowanceTron(allowValue);
-      } catch (e) {
-          console.error("Failed to fetch Tron allowance", e);
-      }
+      // If both fail, set to undefined (will be retried on next poll)
+      console.warn('Could not fetch Tron allowance from any source');
   }, [isTronConnected, tronAddress]);
 
-  // Poll for Tron allowance
+  // Poll for Tron allowance - fetch once on connect, then every 30 seconds
   useEffect(() => {
       if (isTronConnected) {
           fetchTronAllowance();
-          const interval = setInterval(fetchTronAllowance, 3000); 
+          // Poll every 30 seconds instead of 3 seconds to avoid rate limiting
+          const interval = setInterval(fetchTronAllowance, 30000); 
           return () => clearInterval(interval);
       } else {
         setUsdtAllowanceTron(undefined);

