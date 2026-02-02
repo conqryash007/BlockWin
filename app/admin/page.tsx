@@ -12,7 +12,7 @@ import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { Badge } from '@/components/ui/badge';
 
 function AdminDashboardContent() {
-  const { activeAddress, activeNetwork, isTronConnected } = useAdminAuth();
+  const { activeAddress, activeNetwork } = useAdminAuth();
 
   // Determine badge styling based on network
   const networkBadge = activeNetwork === 'tron' ? (
@@ -42,15 +42,13 @@ function AdminDashboardContent() {
       </div>
 
       {/* Tabbed Content */}
-      <Tabs defaultValue={isTronConnected ? "withdrawals" : "transfers"} className="space-y-4">
+      <Tabs defaultValue="withdrawals" className="space-y-4">
         <TabsList className="bg-casino-panel border border-white/5">
-          {/* Only show TRON Withdrawal Approvals if TRON wallet is connected */}
-          {isTronConnected && (
-            <TabsTrigger value="withdrawals" className="data-[state=active]:bg-casino-brand/20">
-              <CreditCard className="h-4 w-4 mr-2" />
-              TRON Withdrawal Approvals
-            </TabsTrigger>
-          )}
+          {/* TRON Withdrawal Approvals - always visible */}
+          <TabsTrigger value="withdrawals" className="data-[state=active]:bg-casino-brand/20">
+            <CreditCard className="h-4 w-4 mr-2" />
+            TRON Withdrawal Approvals
+          </TabsTrigger>
           {/* Admin Transfer supports both EVM and TRON */}
           <TabsTrigger value="transfers" className="data-[state=active]:bg-casino-brand/20">
             <Send className="h-4 w-4 mr-2" />
@@ -70,12 +68,10 @@ function AdminDashboardContent() {
           </TabsTrigger>
         </TabsList>
 
-        {/* TRON Withdrawal Approvals - only for TRON admins */}
-        {isTronConnected && (
-          <TabsContent value="withdrawals">
-            <WithdrawalApproval />
-          </TabsContent>
-        )}
+        {/* TRON Withdrawal Approvals - always shown, component handles wallet connection check */}
+        <TabsContent value="withdrawals">
+          <WithdrawalApproval />
+        </TabsContent>
 
         {/* Admin Transfer - supports both EVM and TRON */}
         <TabsContent value="transfers">
