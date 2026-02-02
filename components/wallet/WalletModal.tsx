@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Wallet, Smartphone, Globe, ChevronRight, Loader2 } from "lucide-react";
 import { useConnect, useChainId, useSwitchChain, Connector } from "wagmi";
-import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser } from "@/lib/config";
+import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser, isInTrustWalletBrowser } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
@@ -72,13 +72,15 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
-  // Detect mobile
+  // Detect mobile and wallet browser
   const [isMobile, setIsMobile] = useState(false);
   const [hasInjectedWallet, setHasInjectedWallet] = useState(false);
+  const [isInTrustWallet, setIsInTrustWallet] = useState(false);
   
   useEffect(() => {
     setIsMobile(isMobileDevice());
     setHasInjectedWallet(isInWalletBrowser());
+    setIsInTrustWallet(isInTrustWalletBrowser());
   }, []);
   
   // Filter and sort connectors for better mobile UX
@@ -285,13 +287,70 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
              <div className="p-6 pt-2 space-y-6">
                  {/* TRON WALLET SELECTION */}
                 <div className="flex flex-col gap-3">
-                   {tronWallets.map((wallet) => {
+                   {tronWallets
+                      // Filter wallets based on context
+                      .filter((wallet) => {
+                          const isWalletConnect = wallet.adapter.name === 'WalletConnect';
+                          const isTrustAdapter = wallet.adapter.name === 'Trust';
+                          
+                          // In Trust Wallet's in-app browser: hide WalletConnect, show TrustAdapter
+                          if (isInTrustWallet) {
+                              return !isWalletConnect; // Keep TrustAdapter, TronLink, hide WalletConnect
+                          }
+                          
+                          // On mobile (not in wallet browser): hide TrustAdapter (it won't work), show WalletConnect with guidance
+                          if (isMobile && !hasInjectedWallet) {
+                              return !isTrustAdapter; // TrustAdapter needs Trust Wallet browser
+                          }
+                          
+                          return true; // Show all on desktop
+                      })
+                      .map((wallet) => {
                       const isWalletConnect = wallet.adapter.name === 'WalletConnect';
+                      const isTrustAdapter = wallet.adapter.name === 'Trust';
                       const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
+                      
+                      // For mobile browsers (not in-app), show guidance for Trust Wallet
+                      const showMobileGuidance = isMobile && !hasInjectedWallet && isWalletConnect;
+                      
+                      // Determine subtitle
+                      let subtitle = 'Browser Extension';
+                      if (isWalletConnect) {
+                          subtitle = isMobile && !hasInjectedWallet 
+                              ? 'Tap for instructions' 
+                              : 'Scan with TronLink Mobile';
+                      } else if (isTrustAdapter) {
+                          subtitle = isInTrustWallet ? 'Connected via Trust Wallet' : 'Open in Trust Wallet Browser';
+                      }
+                      
                       return (
                           <button 
                               key={wallet.adapter.name}
                               onClick={async () => {
+                                  // For mobile users trying WalletConnect, show guidance to use in-app browser
+                                  if (showMobileGuidance) {
+                                      // Copy URL to clipboard and show instructions
+                                      try {
+                                          await navigator.clipboard.writeText(window.location.href);
+                                          alert(
+                                              "For Trust Wallet on TRON:\n\n" +
+                                              "1. Open Trust Wallet app\n" +
+                                              "2. Tap the Browser icon (bottom menu)\n" +
+                                              "3. Paste this URL (copied to clipboard)\n\n" +
+                                              "This ensures proper TRON network connection and signing."
+                                          );
+                                      } catch {
+                                          alert(
+                                              "For Trust Wallet on TRON:\n\n" +
+                                              "1. Open Trust Wallet app\n" +
+                                              "2. Tap the Browser icon (bottom menu)\n" +
+                                              "3. Navigate to: " + window.location.origin + "\n\n" +
+                                              "This ensures proper TRON network connection and signing."
+                                          );
+                                      }
+                                      return;
+                                  }
+                                  
                                   if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                       selectTronWallet(wallet.adapter.name);
                                   }
@@ -305,7 +364,9 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                               }}
                               className={cn(
                                   "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
-                                  border
+                                  border,
+                                  // Highlight Trust adapter when in Trust Wallet browser
+                                  isInTrustWallet && isTrustAdapter && "border-casino-brand/30 bg-casino-brand/5"
                               )}
                             >
                             <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
@@ -319,10 +380,11 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                             
                             <div className="flex-1 text-left">
                                 <span className="block font-medium text-sm text-white group-hover:text-white transition-colors">
-                                    {wallet.adapter.name === 'WalletConnect' ? 'Mobile Wallets' : wallet.adapter.name}
+                                    {wallet.adapter.name === 'WalletConnect' ? 'TronLink Mobile' : wallet.adapter.name}
+                                    {isInTrustWallet && isTrustAdapter && ' ✓'}
                                 </span>
                                 <span className="text-[11px] text-muted-foreground/70 tracking-tight">
-                                     {wallet.adapter.name === 'WalletConnect' ? 'Scan with Trust Wallet / TronLink' : 'Browser Extension'}
+                                     {subtitle}
                                 </span>
                             </div>
 
@@ -330,6 +392,24 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                         </button>
                       )})}
                 </div>
+                
+                {/* Mobile guidance for Trust Wallet - show when on mobile Safari/browser */}
+                {isMobile && !hasInjectedWallet && (
+                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <p className="text-xs text-amber-400 text-center">
+                            <strong>Trust Wallet users:</strong> Open this site in Trust Wallet&apos;s built-in browser for the best TRON experience.
+                        </p>
+                    </div>
+                )}
+                
+                {/* Success message when in Trust Wallet browser */}
+                {isInTrustWallet && (
+                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <p className="text-xs text-emerald-400 text-center">
+                            ✓ Trust Wallet detected. Tap &quot;Trust&quot; above to connect on TRON network.
+                        </p>
+                    </div>
+                )}
              </div>
         ) : isWrongNetwork ? (
             <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
