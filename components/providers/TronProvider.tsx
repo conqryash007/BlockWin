@@ -7,43 +7,37 @@ import { TrustAdapter } from '@tronweb3/tronwallet-adapter-trust';
 import { useMemo } from 'react';
 import { projectId, isMainnet } from '@/lib/config';
 
-// TRON WalletConnect Chain IDs (from TRON documentation)
-const TRON_MAINNET_CHAIN_ID = 'tron:0x2b6653dc';
-const TRON_SHASTA_CHAIN_ID = 'tron:0x94a9059e';
-
 export function TronProvider({ children }: { children: React.ReactNode }) {
     const adapters = useMemo(() => {
         const tronLink = new TronLinkAdapter();
         const trustWallet = new TrustAdapter();
         
-        // Determine network configuration
-        const network = isMainnet() ? 'Mainnet' : 'Shasta';
-        const chainId = isMainnet() ? TRON_MAINNET_CHAIN_ID : TRON_SHASTA_CHAIN_ID;
-        
+        // WalletConnect configured for TRON network
         const walletConnect = new WalletConnectAdapter({
-            network: network,
+            // IMPORTANT: This sets the TRON network for WalletConnect
+            network: isMainnet() ? 'Mainnet' : 'Shasta',
             options: {
                 relayUrl: 'wss://relay.walletconnect.com',
                 projectId: projectId,
                 metadata: {
                     name: 'BlockWin Casino',
-                    description: 'BlockWin - Web3 Casino Platform on TRON',
+                    description: 'BlockWin - Web3 Casino Platform',
                     url: typeof window !== 'undefined' ? window.location.origin : 'https://blockwin.space',
                     icons: ['https://blockwin.space/logo.png'],
                 },
             },
             themeMode: 'dark',
-            debug: process.env.NODE_ENV === 'development',
-            // Only show TronLink in WalletConnect modal (Trust Wallet should use in-app browser)
-            allWallets: 'HIDE',
-            // Feature TronLink for WalletConnect (best TRON support)
+            debug: true,
+            // Show all wallets that support TRON
+            allWallets: 'SHOW',
+            // Feature Trust Wallet and TronLink for TRON
             featuredWalletIds: [
+                '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
                 '225affb176778569276e484e1b92637ad061b01e13a048b35a9d280c3b58970f', // TronLink
             ],
             enableMobileDeepLink: true,
         });
 
-        // Order: TronLink first (best TRON support), then TrustAdapter (for in-app browser), then WalletConnect
         return [tronLink, trustWallet, walletConnect];
     }, []);
 

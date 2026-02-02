@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
 
     if (isTronAddress(address)) {
         // TRON VERIFICATION
+        // Supports both TRON-style signing (TronLink) and Ethereum-style signing (Trust Wallet via WalletConnect)
         
         try {
              // Robust import for TronWeb to handle ESM/CommonJS/Version differences
@@ -99,8 +100,7 @@ export async function POST(request: NextRequest) {
              log(`[TronVerify] Against signature: ${signature}`);
              log(`[TronVerify] Claims to be from: ${address}`);
 
-             // Trust Wallet might sign differently than TronLink.
-             // Try V2 first (standard for TronLink)
+             // Method 1: Try TRON V2 signing (standard for TronLink)
              let verifiedAddress = null;
              try {
                 verifiedAddress = await tronWeb.trx.verifyMessageV2(message, signature);
@@ -110,12 +110,11 @@ export async function POST(request: NextRequest) {
              }
 
              if (verifiedAddress !== address) {
-                 // Try V1 (older standard or different prefix handling)
+                 // Method 2: Try TRON V1 signing (older standard)
                  log("[TronVerify] V2 mismatch or failed, trying V1...");
                  try {
                      const v1Result = await tronWeb.trx.verifyMessage(message, signature);
                      log(`[TronVerify] V1 Result: ${v1Result}`);
-                     // verifyMessage returns boolean in some versions, or address in others?
                      if (typeof v1Result === 'string') {
                          verifiedAddress = v1Result;
                      } 
@@ -124,11 +123,41 @@ export async function POST(request: NextRequest) {
                  }
              }
              
+             // Method 3: Try Ethereum-style verification (Trust Wallet via WalletConnect signs this way)
+             if (verifiedAddress !== address) {
+                 log("[TronVerify] TRON methods failed, trying Ethereum-style verification...");
+                 try {
+                     // Convert TRON address to Ethereum format for verification
+                     // TRON address = 0x41 + 20-byte address (hex) -> Base58
+                     // We need to extract the 20-byte address part
+                     const hexAddress = decodeTronAddress(address);
+                     // hexAddress is like 0x41... (21 bytes with TRON prefix)
+                     // Remove 0x41 prefix to get Ethereum-compatible address
+                     const ethAddress = ('0x' + hexAddress.slice(4)) as `0x${string}`;
+                     log(`[TronVerify] Converted to ETH address: ${ethAddress}`);
+                     
+                     const ethVerified = await verifyMessage({
+                         address: ethAddress,
+                         message,
+                         signature: signature as `0x${string}`,
+                     });
+                     
+                     if (ethVerified) {
+                         log("[TronVerify] Ethereum-style verification SUCCEEDED");
+                         isValidSignature = true;
+                     } else {
+                         log("[TronVerify] Ethereum-style verification returned false");
+                     }
+                 } catch (e: any) {
+                     log(`[TronVerify] Ethereum-style Error: ${e.message}`);
+                 }
+             }
+             
              if (verifiedAddress === address) {
-                 log("[TronVerify] MATCH CONFIRMED");
+                 log("[TronVerify] TRON verification MATCH CONFIRMED");
                  isValidSignature = true;
-             } else {
-                 log(`[TronVerify] FAILED. Expected ${address}, got ${verifiedAddress}`);
+             } else if (!isValidSignature) {
+                 log(`[TronVerify] All methods FAILED. Expected ${address}, got ${verifiedAddress}`);
              }
         } catch (e: any) {
             log(`[TronVerify] Critical Error: ${e.message}`);

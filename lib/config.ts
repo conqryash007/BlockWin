@@ -89,16 +89,6 @@ export const isInWalletBrowser = () => {
   return hasEvmWallet || hasTronWallet;
 }
 
-// Check specifically if we're in Trust Wallet's in-app browser
-export const isInTrustWalletBrowser = () => {
-  if (typeof window === 'undefined') return false;
-  const ethereum = (window as any).ethereum;
-  const tronWeb = (window as any).tronWeb;
-  
-  // Trust Wallet injects both ethereum (with isTrust flag) and tronWeb
-  return !!(ethereum?.isTrust || (tronWeb && navigator.userAgent.includes('Trust')));
-}
-
 // ============================================
 // Wagmi Configuration
 // ============================================
