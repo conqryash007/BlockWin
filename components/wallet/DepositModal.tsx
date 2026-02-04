@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Coins } from 'lucide-react';
@@ -7,11 +7,21 @@ import { useAuth } from '@/hooks/useAuth';
 
 export function DepositModal() {
   const [isOpen, setIsOpen] = useState(false);
-  const { isTronConnected } = useAuth();
+  const { isTronConnected, isConnected } = useAuth();
+  const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron'>('ethereum');
   
-  // Auto-detect network based on connection
-  // If Tron is connected, use Tron. Otherwise default to Ethereum (EVM).
-  const autoNetwork = isTronConnected ? 'tron' : 'ethereum';
+  // Auto-detect network when modal opens or connection changes
+  // Prioritize Tron if connected (assuming generic "isConnected" might be true for both)
+  useEffect(() => {
+    if (isOpen) {
+      if (isTronConnected) {
+        setSelectedNetwork('tron');
+      } else if (isConnected) {
+        setSelectedNetwork('ethereum');
+      }
+      // If neither is connected, keep default (ethereum) or previous selection
+    }
+  }, [isOpen, isTronConnected, isConnected]);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -27,7 +37,8 @@ export function DepositModal() {
         </DialogHeader>
 
         <DepositForm 
-          selectedNetwork={autoNetwork}
+          selectedNetwork={selectedNetwork}
+          onNetworkChange={setSelectedNetwork}
           onClose={() => setIsOpen(false)}
         />
       </DialogContent>

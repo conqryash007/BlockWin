@@ -28,9 +28,10 @@ interface DepositFormProps {
   selectedNetwork: 'ethereum' | 'tron' | null;
   onSuccess?: () => void;
   onClose?: () => void;
+  onNetworkChange?: (network: 'ethereum' | 'tron') => void;
 }
 
-export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositFormProps) {
+export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChange }: DepositFormProps) {
   // Determine active tokens based on network
   const activeTokens = useMemo(() => {
     return selectedNetwork === 'tron' ? TRON_TOKENS : SUPPORTED_TOKENS;
@@ -285,12 +286,38 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   return (
     <div className="space-y-4 py-2">
       {/* Network Badge */}
+      {/* Network Badge & Selector */}
       <div className="flex items-center justify-between px-1">
-          <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
-            Network: <span className={selectedNetwork === 'tron' ? "text-red-500" : "text-indigo-400"}>
-                {selectedNetwork === 'tron' ? 'TRON (TRC20)' : 'ETHEREUM (ERC20)'}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
+              Network:
             </span>
-          </span>
+            {onNetworkChange ? (
+              <Select 
+                value={selectedNetwork || 'ethereum'} 
+                onValueChange={(v) => onNetworkChange(v as 'ethereum' | 'tron')}
+              >
+                <SelectTrigger className="h-6 w-auto gap-2 border-none bg-transparent p-0 text-xs font-bold uppercase focus:ring-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ethereum" className="text-xs font-bold uppercase text-indigo-400">
+                    ETHEREUM (ERC20)
+                  </SelectItem>
+                  <SelectItem value="tron" className="text-xs font-bold uppercase text-red-500">
+                    TRON (TRC20)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <span className={cn(
+                "text-xs font-bold uppercase",
+                selectedNetwork === 'tron' ? "text-red-500" : "text-indigo-400"
+              )}>
+                {selectedNetwork === 'tron' ? 'TRON (TRC20)' : 'ETHEREUM (ERC20)'}
+              </span>
+            )}
+          </div>
       </div>
 
       {/* Token Selector */}
