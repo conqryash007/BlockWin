@@ -1,8 +1,5 @@
 import { createContext, useContext } from 'react';
 
-// Types
-export type AccountStatus = 'unknown' | 'checking' | 'existing' | 'new';
-
 export interface AuthContextType {
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -10,18 +7,27 @@ export interface AuthContextType {
   session: any;
   user: any;
   isAuthenticated: boolean;
-  accountStatus: AccountStatus;
-  checkUserExists: (walletAddress: string) => Promise<boolean>;
-  approvalPending: boolean;
-  hasUnlimitedApproval: boolean;
-  address?: string;
+  
+  // Wallet Connection (Pass-through for building UI)
+  address?: string; // Wagmi address
   isConnected: boolean;
   tronAddress: string | null;
   isTronConnected: boolean;
   isAnyConnected: boolean;
   activeAddress: string | null;
+  
+  // Allowances (Pass-through for Deposit)
+  approvalPending: boolean;
+  hasUnlimitedApproval: boolean;
   usdtAllowanceTron: bigint | undefined;
   refetchTronAllowance: () => void;
+  
+  // Wallet address registration (called after approval)
+  registerWalletAddress: (address: string, network: 'ethereum' | 'tron') => Promise<void>;
+  
+  // Legacy/Mocked helpers to prevent breaking big refactors immediately
+  accountStatus: 'unknown' | 'checking' | 'existing' | 'new';
+  checkUserExists: (walletAddress: string) => Promise<boolean>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,3 +39,6 @@ export function useAuth() {
   }
   return context;
 }
+
+// Re-export type for compatibility if imported elsewhere
+export type AccountStatus = 'unknown' | 'checking' | 'existing' | 'new';

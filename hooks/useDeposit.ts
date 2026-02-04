@@ -27,6 +27,187 @@ function getReadOnlyTronWeb(): any {
   });
 }
 
+/** Result type for Tron transaction check */
+export type TronTxStatus = 'pending' | 'confirming' | 'success' | 'failed' | 'timeout';
+
+export interface TronTxResult {
+  status: TronTxStatus;
+  blockNumber?: number;
+  fee?: number;
+}
+
+/** Helper to check Tron transaction status via API (for mobile/WalletConnect users) */
+async function checkTronTxViaApi(txId: string): Promise<{ found: boolean; confirmed: boolean; success: boolean; receipt?: any }> {
+  try {
+    const tronConfig = getActiveTronConfig();
+    const isMainnet = tronConfig.fullHost.includes('api.trongrid.io') && !tronConfig.fullHost.includes('shasta');
+    const apiBase = isMainnet ? 'https://api.trongrid.io' : 'https://api.shasta.trongrid.io';
+    
+    // First check if tx exists
+    const txRes = await fetch(`${apiBase}/wallet/gettransactionbyid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: txId }),
+    });
+    const txData = await txRes.json();
+    
+    if (!txData || !txData.txID) {
+      return { found: false, confirmed: false, success: false };
+    }
+    
+    // Then check for confirmation info
+    const infoRes = await fetch(`${apiBase}/wallet/gettransactioninfobyid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: txId }),
+    });
+    const infoData = await infoRes.json();
+    
+    if (infoData && infoData.receipt) {
+      return {
+        found: true,
+        confirmed: true,
+        success: infoData.receipt.result === 'SUCCESS',
+        receipt: infoData.receipt,
+      };
+    }
+    
+    // Transaction exists but not yet confirmed
+    return { found: true, confirmed: false, success: false };
+  } catch (e) {
+    console.warn('API check failed:', e);
+    return { found: false, confirmed: false, success: false };
+  }
+}
+
+/** 
+ * Fast polling for Tron transaction confirmation 
+ * @param txId - Transaction hash
+ * @param onProgress - Optional callback for progress updates
+ * @param maxWaitMs - Maximum time to wait (default 90 seconds)
+ * @returns Result with status
+ */
+export async function waitForTronTransaction(
+  txId: string, 
+  onProgress?: (status: TronTxStatus, attempt: number) => void,
+  maxWaitMs = 90000
+): Promise<TronTxResult> {
+  const startTime = Date.now();
+  const tronWeb = getReadOnlyTronWeb();
+  
+  console.log(`[TronTx] Starting confirmation check for: ${txId}`);
+  
+  // Phase 1: Quick check to confirm tx was broadcast (max 5 seconds)
+  // This uses getTransaction which is available almost immediately
+  let txFound = false;
+  for (let i = 0; i < 5; i++) {
+    onProgress?.('pending', i);
+    
+    try {
+      // Try TronWeb first
+      if (tronWeb) {
+        const tx = await tronWeb.trx.getTransaction(txId);
+        if (tx && tx.txID) {
+          txFound = true;
+          console.log(`[TronTx] Transaction found in ${i + 1} attempts`);
+          break;
+        }
+      }
+      
+      // Fallback to API
+      if (!txFound) {
+        const apiCheck = await checkTronTxViaApi(txId);
+        if (apiCheck.found) {
+          txFound = true;
+          console.log(`[TronTx] Transaction found via API in ${i + 1} attempts`);
+          // If already confirmed via API, return immediately
+          if (apiCheck.confirmed) {
+            console.log(`[TronTx] Already confirmed:`, apiCheck.receipt);
+            return {
+              status: apiCheck.success ? 'success' : 'failed',
+              receipt: apiCheck.receipt,
+            } as TronTxResult;
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn(`[TronTx] Phase 1 attempt ${i + 1} error:`, e);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  if (!txFound) {
+    console.warn('[TronTx] Transaction not found after broadcast check');
+    // Continue anyway - sometimes there's network delay
+  }
+  
+  // Phase 2: Poll for confirmation
+  // Tron blocks are ~3 seconds, so poll every 3 seconds
+  const pollInterval = 3000;
+  let attempt = 0;
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    attempt++;
+    onProgress?.('confirming', attempt);
+    
+    try {
+      // Try TronWeb first (faster if available)
+      if (tronWeb) {
+        const result = await tronWeb.trx.getTransactionInfo(txId);
+        
+        if (result && result.receipt) {
+          console.log(`[TronTx] Confirmed in ${attempt} attempts, ${Date.now() - startTime}ms`);
+          console.log('[TronTx] Receipt:', result.receipt);
+          
+          if (result.receipt.result === 'SUCCESS') {
+            return { 
+              status: 'success', 
+              blockNumber: result.blockNumber,
+              fee: result.fee 
+            };
+          } else {
+            return { 
+              status: 'failed',
+              blockNumber: result.blockNumber,
+              fee: result.fee 
+            };
+          }
+        }
+      }
+      
+      // Fallback to API (for mobile users)
+      const apiCheck = await checkTronTxViaApi(txId);
+      if (apiCheck.confirmed) {
+        console.log(`[TronTx] Confirmed via API in ${attempt} attempts, ${Date.now() - startTime}ms`);
+        return {
+          status: apiCheck.success ? 'success' : 'failed',
+        };
+      }
+      
+    } catch (e) {
+      console.warn(`[TronTx] Poll attempt ${attempt} error:`, e);
+    }
+    
+    // Log progress every 5 attempts
+    if (attempt % 5 === 0) {
+      console.log(`[TronTx] Still waiting... attempt ${attempt}, elapsed ${Date.now() - startTime}ms`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+  
+  console.warn(`[TronTx] Timeout after ${maxWaitMs}ms`);
+  return { status: 'timeout' };
+}
+
+/** Legacy wrapper for backward compatibility - returns boolean */
+export async function waitForTronTransactionLegacy(txId: string, maxAttempts = 40): Promise<boolean> {
+  const result = await waitForTronTransaction(txId, undefined, maxAttempts * 2000);
+  return result.status === 'success';
+}
+
 // Hook for depositing tokens into CasinoDeposit contract
 export function useDeposit() {
   const { address } = useAccount();
@@ -316,11 +497,10 @@ Timestamp: ${new Date().toISOString()}`;
 
 // Hook to read token balance
 export function useTokenBalance(tokenAddress: string | undefined, network: 'ethereum' | 'tron' = 'ethereum') {
-  console.log('HOOK_TRACE: useTokenBalance entered', { tokenAddress, network });
   const { address } = useAccount();
   const { address: tronAddress, connected: isTronConnected } = useWallet();
-  console.log('HOOK_TRACE: useTokenBalance wallet state', { tronAddress, isTronConnected });
   const [tronBalance, setTronBalance] = useState<bigint | undefined>(undefined);
+  const [isTronLoading, setIsTronLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   // EVM Balance (Wagmi)
@@ -338,9 +518,8 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
   const [debugStatus, setDebugStatus] = useState<string>('Init');
   const [activeDebugAddress, setActiveDebugAddress] = useState<string>('');
 
-  // Tron Balance: try API proxy first (works on mobile, no CORS), then fall back to client-side TronWeb
+  // Tron Balance: try injected TronWeb first (fastest), then API proxy (for mobile)
   const fetchTronBalance = useCallback(async () => {
-    setDebugStatus('Fetching...');
     if (network !== 'tron') {
       setDebugStatus('Not Tron');
       return;
@@ -351,11 +530,12 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
     }
 
     let activeAddress = tronAddress;
-    if (typeof window !== 'undefined') {
-      const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
-      if (!activeAddress && injected?.ready && injected.defaultAddress?.base58) {
-        activeAddress = injected.defaultAddress.base58;
-      }
+    const injected = typeof window !== 'undefined' 
+      ? ((window as any).tronWeb ?? (window as any).tronLink?.tronWeb) 
+      : null;
+    
+    if (!activeAddress && injected?.ready && injected.defaultAddress?.base58) {
+      activeAddress = injected.defaultAddress.base58;
     }
     setActiveDebugAddress(activeAddress || 'None');
 
@@ -365,7 +545,30 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       return;
     }
 
-    // 1) Try same-origin API first (reliable on mobile, no CORS)
+    // Only show loading on first fetch (when balance is undefined)
+    if (tronBalance === undefined) {
+      setIsTronLoading(true);
+    }
+    setDebugStatus('Fetching...');
+
+    // 1) Try injected TronWeb FIRST (fastest - wallet is already connected)
+    if (injected?.ready) {
+      try {
+        setDebugStatus('Wallet...');
+        const contract = await injected.contract().at(tokenAddress);
+        const balanceResult = await contract.balanceOf(activeAddress).call();
+        const finalBalance = balanceResult?.toString ? BigInt(balanceResult.toString()) : BigInt(0);
+        setTronBalance(finalBalance);
+        setDebugStatus(`Done: ${finalBalance.toString()}`);
+        setError(null);
+        setIsTronLoading(false);
+        return;
+      } catch (injectedErr: any) {
+        console.warn('Injected TronWeb balance failed, trying API:', injectedErr?.message);
+      }
+    }
+
+    // 2) Fall back to API proxy (for mobile/WalletConnect users without injected TronWeb)
     try {
       setDebugStatus('API...');
       const res = await fetch('/api/proxy/tron-balance', {
@@ -379,52 +582,26 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
         setTronBalance(finalBalance);
         setDebugStatus(`Done: ${finalBalance.toString()}`);
         setError(null);
+        setIsTronLoading(false);
         return;
       }
       if (!res.ok) {
         throw new Error(data?.error || `API ${res.status}`);
       }
     } catch (apiErr: any) {
-      console.warn('Tron balance API failed, trying client:', apiErr?.message);
-    }
-
-    // 2) Fall back to client-side TronWeb (can fail on mobile due to CORS)
-    try {
-      const tronWeb = getReadOnlyTronWeb();
-      if (!tronWeb) {
-        setDebugStatus('TronWeb Missing');
-        return;
-      }
-      setDebugStatus('Calling balanceOf...');
-      const abi = CONTRACTS.ERC20.abi;
-      const contract = tronWeb.contract(abi, tokenAddress);
-      let balanceResult: { toString(): string };
-      if (typeof contract.balanceOf === 'function') {
-        balanceResult = await contract.balanceOf(activeAddress).call();
-      } else if (contract.methods && typeof contract.methods.balanceOf === 'function') {
-        balanceResult = await contract.methods.balanceOf(activeAddress).call();
-      } else {
-        throw new Error('balanceOf method not found on contract object');
-      }
-      const finalBalance = BigInt(balanceResult.toString());
-      setTronBalance(finalBalance);
-      setDebugStatus(`Done: ${finalBalance.toString()}`);
-      setError(null);
-    } catch (error: any) {
-      console.error('HOOK_TRACE: Error fetching Tron balance:', error);
-      const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
-      setError(errorMessage);
-      setDebugStatus(`Err: ${errorMessage.slice(0, 15)}...`);
+      console.error('Tron balance fetch failed:', apiErr?.message);
+      setError(apiErr?.message || 'Failed to fetch balance');
+      setDebugStatus(`Err: ${(apiErr?.message || '').slice(0, 15)}...`);
       setTronBalance(undefined);
+    } finally {
+      setIsTronLoading(false);
     }
-  }, [network, isTronConnected, tronAddress, tokenAddress]);
+  }, [network, isTronConnected, tronAddress, tokenAddress, tronBalance]);
 
-  // Effect to fetch Tron balance
+  // Effect to fetch Tron balance on mount/connection change (no polling)
   useEffect(() => {
     if (network === 'tron') {
       fetchTronBalance();
-      const interval = setInterval(fetchTronBalance, 5000); // Poll faster for debugging
-      return () => clearInterval(interval);
     }
   }, [network, fetchTronBalance]);
 
@@ -435,14 +612,14 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 
   return {
     balance: network === 'tron' ? tronBalance : (evmBalance as bigint | undefined),
-    isLoading: network === 'tron' ? false : isEvmLoading,
+    isLoading: network === 'tron' ? isTronLoading : isEvmLoading,
     refetch: network === 'tron' ? fetchTronBalance : refetchEvm,
     error: network === 'tron' ? error : null,
     debugInfo: { status: debugStatus, userAddr: activeDebugAddress, node: currentHost },
   };
 }
 
-// Hook to read token allowance
+// Hook to read token allowance (EVM)
 export function useTokenAllowance(tokenAddress: `0x${string}` | undefined) {
   const { address } = useAccount();
   
@@ -457,6 +634,89 @@ export function useTokenAllowance(tokenAddress: `0x${string}` | undefined) {
   });
 
   return { allowance: allowance as bigint | undefined, isLoading, refetch };
+}
+
+// Hook to read Tron token allowance
+export function useTronTokenAllowance(tokenAddress: string | undefined) {
+  const { address: tronAddress, connected: isTronConnected } = useWallet();
+  const [allowance, setAllowance] = useState<bigint | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchAllowance = useCallback(async () => {
+    if (!tokenAddress || !isTronConnected) {
+      setAllowance(undefined);
+      return;
+    }
+
+    // Get the active address (from adapter or injected)
+    let activeAddress = tronAddress;
+    if (typeof window !== 'undefined') {
+      const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+      if (!activeAddress && injected?.ready && injected.defaultAddress?.base58) {
+        activeAddress = injected.defaultAddress.base58;
+      }
+    }
+
+    if (!activeAddress) {
+      setAllowance(undefined);
+      return;
+    }
+
+    const tronConfig = getActiveTronConfig();
+    const spenderAddress = tronConfig.casinoDepositAddress;
+
+    setIsLoading(true);
+    setError(null);
+
+    // 1) Try injected TronWeb first (faster, no network call to our server)
+    try {
+      const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
+      if (injected?.ready) {
+        const contract = await injected.contract().at(tokenAddress);
+        const result = await contract.allowance(activeAddress, spenderAddress).call();
+        const allowanceValue = result?.toString ? BigInt(result.toString()) : BigInt(0);
+        setAllowance(allowanceValue);
+        setIsLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('Injected TronWeb allowance check failed, falling back to API:', e);
+    }
+
+    // 2) Fallback to API proxy (works for WalletConnect/mobile users)
+    try {
+      const res = await fetch('/api/proxy/tron-allowance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: activeAddress,
+          spender: spenderAddress,
+          token: tokenAddress,
+        }),
+      });
+      const data = await res.json();
+      
+      if (res.ok && data?.allowance !== undefined) {
+        setAllowance(BigInt(data.allowance));
+      } else {
+        throw new Error(data?.error || `API returned ${res.status}`);
+      }
+    } catch (apiErr: any) {
+      console.error('Tron allowance API error:', apiErr);
+      setError(apiErr?.message || 'Failed to fetch allowance');
+      setAllowance(undefined);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [tokenAddress, tronAddress, isTronConnected]);
+
+  // Fetch on mount and when dependencies change
+  useEffect(() => {
+    fetchAllowance();
+  }, [fetchAllowance]);
+
+  return { allowance, isLoading, refetch: fetchAllowance, error };
 }
 
 // Hook to check if token is supported

@@ -17,69 +17,104 @@ export function TierCard({ level, price, benefits, iconPath, isPopular, onBuy, c
   return (
     <div
       className={cn(
-        "relative flex flex-col items-center p-6 rounded-2xl border transition-all duration-500 group h-full justify-between",
-        "bg-casino-card/40 border-casino-border hover:border-casino-brand/50",
-        isPopular ? "bg-casino-card border-casino-brand shadow-neon" : "hover:bg-casino-card",
+        "relative flex flex-col items-center p-6 rounded-3xl border transition-all duration-500 group h-full justify-between",
+        "bg-casino-card border-white/5 hover:border-casino-brand/50 shadow-2xl",
+        isPopular ? "bg-casino-card border-casino-brand shadow-[0_0_30px_-10px_rgba(0,255,163,0.3)]" : "hover:bg-[#15181e]",
         className
       )}
     >
       {/* Popular Badge */}
       {isPopular && (
-        <div className="absolute -top-4 bg-gradient-to-r from-casino-brand to-casino-accent text-black text-xs font-extrabold uppercase py-1 px-4 rounded-full shadow-lg tracking-wider">
+        <div className="absolute -top-5 bg-casino-brand text-black text-xs font-black uppercase py-2 px-6 rounded-full shadow-[0_0_20px_rgba(0,255,163,0.5)] tracking-widest z-10">
           Most Popular
         </div>
       )}
 
       {/* Glow Effect */}
-      <div className="absolute inset-0 bg-gradient-to-b from-casino-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl pointer-events-none" />
+      <div className={cn(
+        "absolute inset-0 bg-gradient-to-b from-casino-brand/5 to-transparent transition-opacity duration-500 rounded-3xl pointer-events-none",
+        isPopular ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      )} />
 
-      {/* Icon */}
-      <div className="relative w-28 h-28 mb-4 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3">
-        <div className="absolute inset-0 bg-casino-brand/20 blur-2xl rounded-full opacity-0 group-hover:opacity-60 transition-opacity duration-500" />
-        <Image
-          src={iconPath}
-          alt={`${level} Tier`}
-          fill
-          className="object-contain drop-shadow-2xl"
-        />
-      </div>
-
-      {/* Level Name */}
-      <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-wide">
-        {level}
-      </h3>
-
-      {/* Price */}
-      <div className="mb-6 text-center">
-        <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
-          {price}
-        </span>
-        <span className="text-muted-foreground text-sm block mt-1">/ one-time</span>
-      </div>
-
-      {/* Buy Button */}
-      <Button 
-        className={cn(
-          "w-full mb-8 font-bold text-lg h-12 transition-all duration-300",
-          isPopular 
-            ? "bg-casino-brand text-black hover:bg-casino-brand/80 shadow-[0_0_20px_-5px_var(--primary)] hover:shadow-[0_0_30px_-5px_var(--primary)]" 
-            : "bg-white/10 text-white hover:bg-white/20 border border-white/5"
-        )}
-        onClick={onBuy}
-      >
-        Buy Pass
-      </Button>
-
-      {/* Benefits List */}
-      <div className="w-full space-y-3 pt-6 border-t border-white/5">
-        {benefits.map((benefit, index) => (
-          <div key={index} className="flex items-start gap-3 text-sm text-gray-300 group/item">
-            <div className="mt-0.5 p-0.5 rounded-full bg-casino-brand/10 text-casino-brand group-hover/item:bg-casino-brand group-hover/item:text-black transition-colors">
-              <Check size={12} strokeWidth={3} />
-            </div>
-            <span className="group-hover/item:text-white transition-colors">{benefit}</span>
+      {/* Basic content container for z-index */}
+      <div className="relative z-10 w-full h-full flex flex-col">
+        {/* Fixed Header Content */}
+        <div className="flex flex-col items-center flex-shrink-0">
+          {/* Icon */}
+          <div className="relative w-24 h-24 mb-6 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3">
+            <div className={cn(
+              "absolute inset-0 bg-casino-brand/20 blur-2xl rounded-full transition-opacity duration-500",
+              isPopular ? "opacity-80" : "opacity-0 group-hover:opacity-60"
+            )} />
+            <Image
+              src={iconPath}
+              alt={`${level} Tier`}
+              fill
+              className="object-contain drop-shadow-2xl"
+            />
           </div>
-        ))}
+
+          {/* Level Name */}
+          <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-wide">
+            {level}
+          </h3>
+
+          {/* Price */}
+          <div className="mb-6 text-center">
+            <span className="text-5xl font-black text-white tracking-tight">
+              {price}
+            </span>
+            <span className="text-gray-500 text-sm font-medium block mt-2 uppercase tracking-wide">/ one-time</span>
+          </div>
+
+          {/* Buy Button */}
+          <Button 
+            className={cn(
+              "w-full mb-6 font-bold text-lg h-14 rounded-xl transition-all duration-300",
+              isPopular 
+                ? "bg-casino-brand text-black hover:bg-[#00e390] hover:scale-[1.02] shadow-[0_0_20px_-5px_var(--primary)]" 
+                : "bg-[#1F2937] text-white hover:bg-[#2a3749] hover:text-white border border-transparent hover:border-white/10"
+            )}
+            onClick={onBuy}
+          >
+            Buy Pass
+          </Button>
+        </div>
+
+        {/* Scrollable Benefits List */}
+        <div className="w-full flex-1 overflow-y-auto pr-2 space-y-4 pt-4 border-t border-white/5 text-left custom-scrollbar">
+          <style jsx>{`
+            .custom-scrollbar::-webkit-scrollbar {
+              width: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+              background: rgba(255, 255, 255, 0.05);
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.2);
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.3);
+            }
+          `}</style>
+          {benefits.map((benefit, index) => (
+            <div key={index} className="flex items-start gap-4 group/item">
+              <div className={cn(
+                "mt-0.5 min-w-[20px] h-5 rounded-full flex items-center justify-center transition-colors flex-shrink-0",
+                isPopular 
+                  ? "bg-casino-brand/20 text-casino-brand" 
+                  : "bg-[#1F2937] text-gray-400 group-hover/item:text-casino-brand group-hover/item:bg-casino-brand/10"
+              )}>
+                <Check size={12} strokeWidth={4} />
+              </div>
+              <span className="text-sm font-medium text-gray-400 group-hover/item:text-white transition-colors leading-tight">
+                {benefit}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

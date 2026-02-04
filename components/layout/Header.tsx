@@ -1,6 +1,7 @@
 "use client";
 
 import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2 } from "lucide-react";
+import { FcGoogle } from "react-icons/fc";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAccount, useDisconnect } from "wagmi";
-import { WalletModal } from "@/components/wallet/WalletModal"; 
+import { LoginModal } from "@/components/auth/LoginModal";
+import { WalletModal } from "@/components/wallet/WalletModal";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePlatformBalance } from "@/hooks/usePlatformBalance";
@@ -24,6 +26,7 @@ import { toast } from "sonner";
 
 export function Header() {
   const [isWalletOpen, setIsWalletOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   
@@ -36,8 +39,9 @@ export function Header() {
       logout, 
       login, 
       isAuthenticated,
-      activeAddress: address, // Alias to 'address' for minimal code changes below
-      isAnyConnected: isConnected, // Alias to 'isConnected'
+      user,
+      activeAddress: address, 
+      isAnyConnected: isConnected, 
       loading
   } = useAuth();
 
@@ -47,6 +51,8 @@ export function Header() {
 
   // Format balance for display
   const displayBalance = platformBalance.toFixed(2);
+  const userEmail = user?.email;
+  const userInitial = userEmail ? userEmail[0].toUpperCase() : 'U';
 
   return (
     <header className="sticky top-0 z-40 flex h-14 sm:h-16 shrink-0 items-center justify-between border-b border-white/5 bg-background/60 backdrop-blur-md px-3 sm:px-6 transition-all">
@@ -116,130 +122,105 @@ export function Header() {
           <Search className="h-4 w-4" />
         </Button>
 
-        {/* Balance Display */}
-        {isMounted && isAuthenticated && (
-          <div className="flex flex-col items-end bg-black/30 px-2 sm:px-3 py-1 rounded-lg border border-white/5">
-            <span className="text-xs sm:text-sm font-bold text-casino-brand tracking-wide">
-              ${isBalanceLoading ? '...' : displayBalance}
-            </span>
-            <span className="text-[8px] sm:text-[10px] text-muted-foreground font-mono hidden xs:block">USDT Balance</span>
-          </div>
-        )}
+        {isMounted && isAuthenticated ? (
+          <>
+             {/* Balance Display */}
+            <div className="flex flex-col items-end bg-black/30 px-2 sm:px-3 py-1 rounded-lg border border-white/5">
+              <span className="text-xs sm:text-sm font-bold text-casino-brand tracking-wide">
+                ${isBalanceLoading ? '...' : displayBalance}
+              </span>
+              <span className="text-[8px] sm:text-[10px] text-muted-foreground font-mono hidden xs:block">USDT Balance</span>
+            </div>
 
-        {/* Wallet Button */}
-        {isMounted && (
-          <Button 
-            size="sm"
-            className={cn(
-              "gap-1.5 sm:gap-2 font-bold transition-all duration-300 h-8 sm:h-9 px-2 sm:px-4 text-xs sm:text-sm",
-                isConnected 
-                ? isAuthenticated 
-                  ? "bg-secondary hover:bg-secondary/80 text-white" 
-                  : cn(
-                      "bg-yellow-500 hover:bg-yellow-600 text-black",
-                      loading ? "opacity-50 cursor-not-allowed" : "animate-pulse"
-                    )
-                : "bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_20px_rgba(0,255,163,0.4)] hover:-translate-y-0.5"
-            )}
-            onClick={() => {
-                if (isConnected && !isAuthenticated) {
-                  // Directly trigger login when wallet is connected but not authenticated
-                  if (!loading) login();
-                } else {
-                  // Open modal for wallet selection or wallet actions
-                  setIsWalletOpen(true);
-                }
-              }}
-              disabled={loading || (isConnected && !isAuthenticated && loading)}
-          >
-            {loading ? (
-               <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
-            ) : (
-               <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            )}
-            
-            {isConnected ? (
-              isAuthenticated ? (
-                <span className="hidden sm:inline">{`${address?.slice(0, 6)}...${address?.slice(-4)}`}</span>
-              ) : (
-                <span className="hidden xs:inline">
-                   {loading ? "Verifying..." : "Sign to Verify"}
+            {/* Wallet Address Display */}
+            {isConnected && address && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                <Wallet className="w-4 h-4 text-casino-brand" />
+                <span className="text-sm font-mono text-white tracking-tight">
+                  {`${address.slice(0, 6)}...${address.slice(-4)}`}
                 </span>
-              )
-            ) : (
-              <>
-                <span className="hidden sm:inline">Connect Wallet</span>
-                <span className="inline sm:hidden">Connect</span>
-              </>
+              </div>
             )}
-          </Button>
-        )}
 
-        {/* Profile Dropdown */}
-        {isMounted && isAuthenticated && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border border-white/10 cursor-pointer hover:border-casino-brand/50 transition-colors">
-                <AvatarImage src="/images/avatar.png" alt="User" />
-                <AvatarFallback className="bg-casino-brand text-black font-bold text-xs sm:text-sm">
-                  {address?.slice(2, 4).toUpperCase() || 'U'}
-                </AvatarFallback>
-              </Avatar>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">Connected Wallet</p>
-                  <p className="text-xs leading-none text-muted-foreground font-mono">
-                    {address?.slice(0, 6)}...{address?.slice(-4)}
-                  </p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/wallet" className="cursor-pointer">
-                  <Wallet className="mr-2 h-4 w-4" />
-                  <span>My Wallet</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => {
-                  if (address) {
-                    navigator.clipboard.writeText(address);
-                    toast.success('Address copied to clipboard');
-                  }
-                }}
-              >
-                <Copy className="mr-2 h-4 w-4" />
-                <span>Copy Address</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => {
-                  if (address) {
-                      const isTron = address.startsWith('T');
-                      const url = isTron 
-                        ? `https://tronscan.org/#/address/${address}`
-                        : `https://etherscan.io/address/${address}`;
-                    window.open(url, '_blank');
-                  }
-                }}
-              >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                <span>View on Explorer</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                onClick={() => {
-                  logout();
-                  disconnect();
-                }}
-                className="text-red-400 focus:text-red-400 focus:bg-red-500/10"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+             {/* Profile Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border border-white/10 cursor-pointer hover:border-casino-brand/50 transition-colors">
+                  <AvatarImage src={user?.user_metadata?.avatar_url} alt="User" />
+                  <AvatarFallback className="bg-casino-brand text-black font-bold text-xs sm:text-sm">
+                    {userInitial}
+                  </AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{userEmail}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      Logged in via Google
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/wallet" className="cursor-pointer">
+                    <Wallet className="mr-2 h-4 w-4" />
+                    <span>My Wallet</span>
+                  </Link>
+                </DropdownMenuItem>
+                
+                {isConnected && (
+                  <>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        if (address) {
+                          navigator.clipboard.writeText(address);
+                          toast.success('Address copied to clipboard');
+                        }
+                      }}
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      <span>Copy Address</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        if (address) {
+                            const isTron = address.startsWith('T');
+                            const url = isTron 
+                              ? `https://tronscan.org/#/address/${address}`
+                              : `https://etherscan.io/address/${address}`;
+                          window.open(url, '_blank');
+                        }
+                      }}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      <span>View on Explorer</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={() => {
+                    logout();
+                    disconnect();
+                  }}
+                  className="text-red-400 focus:text-red-400 focus:bg-red-500/10"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Logout</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        ) : (
+          <Button
+             onClick={() => setIsLoginModalOpen(true)}
+             disabled={loading}
+             className="bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_15px_rgba(0,255,163,0.4)] font-bold gap-2 transition-all hover:-translate-y-0.5"
+          >
+             Login
+          </Button>
         )}
       </div>
 
@@ -247,6 +228,11 @@ export function Header() {
         open={isWalletOpen} 
         onOpenChange={setIsWalletOpen} 
         isConnected={isConnected}
+      />
+      
+      <LoginModal 
+        open={isLoginModalOpen} 
+        onOpenChange={setIsLoginModalOpen}
       />
     </header>
   );
