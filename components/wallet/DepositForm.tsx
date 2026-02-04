@@ -285,7 +285,6 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
 
   return (
     <div className="space-y-4 py-2">
-      {/* Network Badge */}
       {/* Network Badge & Selector */}
       <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
@@ -381,6 +380,14 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
               <span className="text-muted-foreground">Token</span>
               <span className="truncate" title={String(tokenAddress)}>
                 {tokenAddress ? `${String(tokenAddress).slice(0, 10)}…` : '—'}
+              </span>
+              <span className="text-muted-foreground">Allowance</span>
+              <span className="truncate" title={String(allowance)}>
+                {allowance !== undefined ? formatUnits(allowance, token.decimals) : '—'}
+              </span>
+              <span className="text-muted-foreground">Unlimited?</span>
+              <span className={hasUnlimitedApprovalLocal ? 'text-green-400' : ''}>
+                {hasUnlimitedApprovalLocal ? 'Yes' : 'No'}
               </span>
               <span className="text-muted-foreground">Balance</span>
               <span>

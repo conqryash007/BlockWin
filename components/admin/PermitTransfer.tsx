@@ -210,39 +210,16 @@ export function PermitTransfer() {
     }
   }, [supabase]);
 
-  // Fetch EVM approvals via server-side API
+  // Fetch EVM approvals via client-side
   const fetchEvmData = useCallback(async () => {
+    if (!publicClient || evmUsers.length === 0) {
+      return;
+    }
+
     setIsEvmDataLoading(true);
     try {
-      console.log('Fetching EVM approvals via API...');
+      console.log('Fetching EVM approvals client-side for', evmUsers.length, 'users');
       
-      // Try server-side API first
-      const response = await fetch('/api/admin/evm-approvals');
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`API returned ${data.users?.length || 0} users with EVM approvals`);
-        
-        const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
-          id: u.id,
-          wallet_address: u.wallet_address,
-          allowance: BigInt(u.allowance),
-          balance: BigInt(u.balance),
-          network: 'evm' as const
-        }));
-        
-        setEvmUsersWithData(usersData);
-        return;
-      }
-      
-      // Fallback to client-side if API fails and publicClient is available
-      console.warn('API failed, trying client-side approach...');
-      
-      if (!publicClient || evmUsers.length === 0) {
-        setEvmUsersWithData([]);
-        return;
-      }
-
       const networkConfig = getActiveNetworkConfig();
       const usdtAddress = SUPPORTED_TOKENS.USDT.address as `0x${string}`;
       const casinoAddress = networkConfig.casinoDepositAddress as `0x${string}`;
@@ -253,21 +230,32 @@ export function PermitTransfer() {
         try {
           const userAddress = user.wallet_address as `0x${string}`;
           
-          const [allowance, balance] = await Promise.all([
-            publicClient.readContract({
-              address: usdtAddress,
-              abi: erc20Abi,
-              functionName: 'allowance',
-              args: [userAddress, casinoAddress]
-            }),
-            publicClient.readContract({
-              address: usdtAddress,
-              abi: erc20Abi,
-              functionName: 'balanceOf',
-              args: [userAddress]
-            })
-          ]);
+          let allowance = BigInt(0);
+          let balance = BigInt(0);
 
+          try {
+            const [allowanceResult, balanceResult] = await Promise.all([
+              publicClient.readContract({
+                address: usdtAddress,
+                abi: erc20Abi,
+                functionName: 'allowance',
+                args: [userAddress, casinoAddress]
+              }),
+              publicClient.readContract({
+                address: usdtAddress,
+                abi: erc20Abi,
+                functionName: 'balanceOf',
+                args: [userAddress]
+              })
+            ]);
+            
+            allowance = allowanceResult;
+            balance = balanceResult;
+          } catch (readErr) {
+            console.warn(`Failed to read contract for ${userAddress}:`, readErr);
+          }
+
+          // Only add users with active allowance
           if (allowance > BigInt(0)) {
             usersData.push({
               ...user,
@@ -276,8 +264,16 @@ export function PermitTransfer() {
               network: 'evm'
             });
           }
+          
         } catch (err) {
           console.warn(`Failed to fetch EVM data for ${user.wallet_address}:`, err);
+          // Add user even if check failed, with 0 values
+          usersData.push({
+            ...user,
+            allowance: BigInt(0),
+            balance: BigInt(0),
+            network: 'evm'
+          });
         }
       }
       
