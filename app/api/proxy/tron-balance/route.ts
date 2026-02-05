@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const tronConfig = getActiveTronConfig();
     const tronWeb = new TronWeb({
       fullHost: tronConfig.fullHost,
-      headers: process.env.TRON_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRON_API_KEY } : undefined,
+      headers: process.env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY } : undefined,
     });
     tronWeb.setAddress(address);
     const contract = await tronWeb.contract().at(token);
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const tronConfig = getActiveTronConfig();
     const tronWeb = new TronWeb({
       fullHost: tronConfig.fullHost,
-      headers: process.env.TRON_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRON_API_KEY } : undefined,
+      headers: process.env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY } : undefined,
     });
     tronWeb.setAddress(address);
     const contract = await tronWeb.contract().at(token);

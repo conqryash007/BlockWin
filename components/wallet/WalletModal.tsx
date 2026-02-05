@@ -56,6 +56,7 @@ const getWalletStyle = (name: string) => {
 export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
   const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [mobileWalletConnectTriggered, setMobileWalletConnectTriggered] = useState(false);
   const { connectors, connect, isPending } = useConnect();
   
   // Tron Adapter hooks
@@ -80,6 +81,34 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
     setIsMobile(isMobileDevice());
     setHasInjectedWallet(isInWalletBrowser());
   }, []);
+  
+  // Find WalletConnect connector for EVM
+  const walletConnectConnector = useMemo(() => {
+    return connectors.find(c => c.name.toLowerCase().includes('walletconnect'));
+  }, [connectors]);
+  
+  // On mobile without in-app browser: auto-trigger WalletConnect when modal opens
+  useEffect(() => {
+    if (open && isMobile && !hasInjectedWallet && !isConnected && !isTronConnected && !mobileWalletConnectTriggered) {
+      // Small delay to ensure modal is visible before triggering WalletConnect
+      const timer = setTimeout(() => {
+        if (walletConnectConnector) {
+          setMobileWalletConnectTriggered(true);
+          setConnectingId(walletConnectConnector.uid);
+          console.log('[WalletModal] Mobile detected - auto-triggering WalletConnect...');
+          connect({ connector: walletConnectConnector });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [open, isMobile, hasInjectedWallet, isConnected, isTronConnected, mobileWalletConnectTriggered, walletConnectConnector, connect]);
+  
+  // Reset mobile trigger flag when modal closes
+  useEffect(() => {
+    if (!open) {
+      setMobileWalletConnectTriggered(false);
+    }
+  }, [open]);
   
   // Filter and sort connectors for better mobile UX
   const filteredConnectors = useMemo(() => {
@@ -144,6 +173,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
     if (!newOpen) {
       setSelectedNetwork(null);
       setConnectingId(null);
+      setMobileWalletConnectTriggered(false);
     }
     onOpenChange(newOpen);
   };
@@ -187,12 +217,15 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                 </div>
                 <div className="space-y-0.5">
                     <h2 className="text-xl font-bold text-white">
-                      {isAnyConnected ? "Wallet Actions" : selectedNetwork ? "Select Wallet" : "Connect Wallet"}
+                      {isAnyConnected ? "Wallet Actions" : (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) ? "Connect Wallet" : selectedNetwork ? "Select Wallet" : "Connect Wallet"}
                     </h2>
-                    {!isAnyConnected && !selectedNetwork && (
+                    {!isAnyConnected && !selectedNetwork && !(isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
                          <p className="text-sm font-normal text-muted-foreground">Choose your blockchain network</p>
                     )}
-                    {!isAnyConnected && selectedNetwork && (
+                    {!isAnyConnected && (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
+                         <p className="text-sm font-normal text-muted-foreground">Mobile wallet connection</p>
+                    )}
+                    {!isAnyConnected && selectedNetwork && !(isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
                          <p className="text-sm font-normal text-muted-foreground">
                            {selectedNetwork === 'ethereum' ? 'BSC / Ethereum wallets' : 'TRON wallets'}
                          </p>
@@ -202,8 +235,37 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
             </DialogHeader>
         </div>
 
-        {/* Network Selection Step - Show first when modal opens */}
-        {!selectedNetwork ? (
+        {/* Mobile WalletConnect Auto-Connect State */}
+        {isMobile && !hasInjectedWallet && mobileWalletConnectTriggered && !isAnyConnected ? (
+          <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[250px]">
+            <div className="w-16 h-16 rounded-full bg-[#3b99fc]/10 flex items-center justify-center animate-pulse">
+              <Smartphone className="w-8 h-8 text-[#3b99fc]" />
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-bold text-white">Opening WalletConnect</h3>
+              <p className="text-sm text-muted-foreground max-w-[260px]">
+                Scan the QR code or select your wallet from the list to connect.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground text-xs">
+              <Loader2 className="w-4 h-4 animate-spin text-[#3b99fc]" />
+              <span>Waiting for wallet connection...</span>
+            </div>
+            {/* Option to go back to network selection */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setMobileWalletConnectTriggered(false);
+                setConnectingId(null);
+              }}
+              className="text-muted-foreground hover:text-white text-xs"
+            >
+              Choose network manually
+            </Button>
+          </div>
+        ) : !selectedNetwork ? (
+          /* Network Selection Step - Show first when modal opens */
           <div className="p-6 pt-2">
             <NetworkSelector
               value={selectedNetwork}

@@ -2,7 +2,7 @@
 // Provides football video highlights and live streams
 // Note: Free plan includes ScoreBat branding and ads
 
-const SCOREBAT_BASE_URL = 'https://www.scorebat.com/video-api/v3';
+const SCOREBAT_BASE_URL = process.env.NEXT_PUBLIC_SCOREBAT_FREE_FEED || 'https://www.scorebat.com/video-api/v3/';
 
 // Types for ScoreBat API responses
 export interface ScorebatVideo {
@@ -67,7 +67,7 @@ export const TEAM_SLUGS: Record<string, string> = {
  */
 export async function fetchFreeVideoFeed(): Promise<ScorebatApiResponse<ScorebatMatch[]>> {
   try {
-    const response = await fetch(`${SCOREBAT_BASE_URL}/`);
+    const response = await fetch(SCOREBAT_BASE_URL.endsWith('/') ? SCOREBAT_BASE_URL : `${SCOREBAT_BASE_URL}/`);
     
     if (!response.ok) {
       return {
