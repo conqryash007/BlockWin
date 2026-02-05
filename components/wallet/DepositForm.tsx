@@ -6,7 +6,6 @@ import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { SUPPORTED_TOKENS, TRON_TOKENS } from '@/lib/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Loader2,
@@ -39,7 +38,6 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
 
   const [selectedToken, setSelectedToken] = useState<string>('USDT');
   const [amount, setAmount] = useState('');
-  const [termsAccepted, setTermsAccepted] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
@@ -65,7 +63,6 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
   const tokenAddress = token?.address as `0x${string}`; // Type assertion for compatibility hooks
   
   const { 
-    signTerms,
     approveUnlimited,
     deposit, 
     depositSuccess,
@@ -83,15 +80,15 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
   );
 
   const { allowance, refetch: refetchAllowance } = useTokenAllowance(tokenAddress || '0x0000000000000000000000000000000000000000');
-  const { hasUnlimitedApproval: authHasUnlimitedApproval, refetchTronAllowance } = useAuth();
+  const { usdtAllowanceTron, refetchTronAllowance } = useAuth();
 
   // Parse amount
   const parsedAmount = amount && token ? parseUnits(amount, token.decimals) : BigInt(0);
 
-  // Check if already has unlimited approval (network-aware: use AuthContext for TRON, wagmi for EVM)
+  // Check if already has unlimited approval (network-specific check)
   const hasUnlimitedApprovalLocal =
     selectedNetwork === 'tron'
-      ? authHasUnlimitedApproval
+      ? (usdtAllowanceTron !== undefined && usdtAllowanceTron >= maxUint256 / BigInt(2))
       : (allowance !== undefined && allowance >= maxUint256 / BigInt(2));
   const hasSufficientBalance = balance !== undefined && balance >= parsedAmount;
 
@@ -130,32 +127,18 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
       toast.error('Insufficient balance');
       return;
     }
-    if (!termsAccepted && isFirstTime) {
-      toast.error('Please accept the terms');
-      return;
-    }
 
     setIsProcessing(true);
     setDepositError(null);
     addLog('Deposit started');
 
     try {
+      // First-time deposit: need to approve token spending
       if (isFirstTime) {
-        addLog('Step: Sign terms…');
-        toast.info('Please sign the terms agreement...');
-        const signature = await signTerms(selectedNetwork);
-        if (!signature) {
-          addLog('Error: Sign terms failed or cancelled');
-          setDepositError('Sign terms failed or cancelled');
-          setIsProcessing(false);
-          return;
-        }
-        addLog('Step: Sign terms OK');
-
         addLog('Step: Approve token spending…');
         toast.info(
           selectedNetwork === 'tron'
-            ? 'TronLink will open to approve USDT spending...'
+            ? 'Please approve USDT spending in your wallet...'
             : 'Please approve token spending...'
         );
         const approved = await approveUnlimited(tokenAddress, selectedNetwork);
@@ -261,9 +244,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
     amount,
     parsedAmount,
     hasSufficientBalance,
-    termsAccepted,
     isFirstTime,
-    signTerms,
     approveUnlimited,
     tokenAddress,
     refetchAllowance,
@@ -272,6 +253,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
     deposit,
     selectedNetwork,
     onSuccess,
+    addLog,
   ]);
 
   if (!token) return null;
@@ -281,7 +263,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
     if (isProcessing) return 'Processing...';
     
     if (isFirstTime) {
-      return `Sign Terms, Approve & Deposit`;
+      return `Approve & Deposit`;
     }
     
     return `Deposit ${amount ? `${amount} ${token.symbol}` : ''}`;
@@ -518,25 +500,10 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
         <p className="text-red-500 text-sm">Insufficient balance</p>
       )}
 
-      {/* Terms - only show on first time */}
-      {isFirstTime && (
-        <div className="flex items-center space-x-3 p-3 rounded-lg bg-white/5 border border-white/10">
-          <Checkbox 
-            id="terms" 
-            checked={termsAccepted}
-            onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
-            disabled={isProcessing}
-          />
-          <label htmlFor="terms" className="text-sm cursor-pointer">
-            I am 18+ and agree to the terms of service
-          </label>
-        </div>
-      )}
-
       {/* Info text */}
       <div className="text-xs text-muted-foreground p-2 rounded bg-white/5">
         {isFirstTime ? (
-          <span>First deposit: Sign terms, approve unlimited spending (one-time), then deposit.</span>
+          <span>First deposit: Approve unlimited spending (one-time), then deposit.</span>
         ) : (
           <span>Confirm deposit only - unlimited approval already granted.</span>
         )}
@@ -546,7 +513,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
       <Button 
         onClick={handleDeposit}
         className="w-full h-12 bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
-        disabled={isProcessing || !amount || !hasSufficientBalance || (isFirstTime && !termsAccepted)}
+        disabled={isProcessing || !amount || !hasSufficientBalance}
       >
         {isProcessing ? (
           <>
