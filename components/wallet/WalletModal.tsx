@@ -87,21 +87,39 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
     return connectors.find(c => c.name.toLowerCase().includes('walletconnect'));
   }, [connectors]);
   
-  // On mobile without in-app browser: auto-trigger WalletConnect when modal opens
+  // Find WalletConnect adapter for TRON
+  const tronWalletConnectAdapter = useMemo(() => {
+    return tronWallets.find(w => w.adapter.name === 'WalletConnect');
+  }, [tronWallets]);
+  
+  // On mobile without in-app browser: auto-trigger WalletConnect after network selection
   useEffect(() => {
-    if (open && isMobile && !hasInjectedWallet && !isConnected && !isTronConnected && !mobileWalletConnectTriggered) {
-      // Small delay to ensure modal is visible before triggering WalletConnect
-      const timer = setTimeout(() => {
-        if (walletConnectConnector) {
+    if (open && isMobile && !hasInjectedWallet && selectedNetwork && !isConnected && !isTronConnected && !mobileWalletConnectTriggered) {
+      // Small delay to ensure UI is updated before triggering WalletConnect
+      const timer = setTimeout(async () => {
+        if (selectedNetwork === 'ethereum' && walletConnectConnector) {
           setMobileWalletConnectTriggered(true);
           setConnectingId(walletConnectConnector.uid);
-          console.log('[WalletModal] Mobile detected - auto-triggering WalletConnect...');
+          console.log('[WalletModal] Mobile + Ethereum selected - auto-triggering WalletConnect...');
           connect({ connector: walletConnectConnector });
+        } else if (selectedNetwork === 'tron' && tronWalletConnectAdapter) {
+          setMobileWalletConnectTriggered(true);
+          console.log('[WalletModal] Mobile + TRON selected - auto-triggering TRON WalletConnect...');
+          // Select and connect TRON WalletConnect
+          if (tronWalletConnectAdapter.adapter.name !== currentTronWallet?.adapter.name) {
+            selectTronWallet(tronWalletConnectAdapter.adapter.name);
+          }
+          try {
+            await connectTronWallet();
+          } catch (e) {
+            console.error('[WalletModal] TRON WalletConnect connection error:', e);
+            setMobileWalletConnectTriggered(false);
+          }
         }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [open, isMobile, hasInjectedWallet, isConnected, isTronConnected, mobileWalletConnectTriggered, walletConnectConnector, connect]);
+  }, [open, isMobile, hasInjectedWallet, selectedNetwork, isConnected, isTronConnected, mobileWalletConnectTriggered, walletConnectConnector, tronWalletConnectAdapter, connect, selectTronWallet, connectTronWallet, currentTronWallet]);
   
   // Reset mobile trigger flag when modal closes
   useEffect(() => {
@@ -217,13 +235,15 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                 </div>
                 <div className="space-y-0.5">
                     <h2 className="text-xl font-bold text-white">
-                      {isAnyConnected ? "Wallet Actions" : (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) ? "Connect Wallet" : selectedNetwork ? "Select Wallet" : "Connect Wallet"}
+                      {isAnyConnected ? "Wallet Actions" : (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered && selectedNetwork) ? "Connect Wallet" : selectedNetwork ? "Select Wallet" : "Connect Wallet"}
                     </h2>
-                    {!isAnyConnected && !selectedNetwork && !(isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
+                    {!isAnyConnected && !selectedNetwork && (
                          <p className="text-sm font-normal text-muted-foreground">Choose your blockchain network</p>
                     )}
-                    {!isAnyConnected && (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
-                         <p className="text-sm font-normal text-muted-foreground">Mobile wallet connection</p>
+                    {!isAnyConnected && (isMobile && !hasInjectedWallet && mobileWalletConnectTriggered && selectedNetwork) && (
+                         <p className="text-sm font-normal text-muted-foreground">
+                           {selectedNetwork === 'ethereum' ? 'EVM wallet via WalletConnect' : 'TRON wallet via WalletConnect'}
+                         </p>
                     )}
                     {!isAnyConnected && selectedNetwork && !(isMobile && !hasInjectedWallet && mobileWalletConnectTriggered) && (
                          <p className="text-sm font-normal text-muted-foreground">
@@ -235,21 +255,32 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
             </DialogHeader>
         </div>
 
-        {/* Mobile WalletConnect Auto-Connect State */}
-        {isMobile && !hasInjectedWallet && mobileWalletConnectTriggered && !isAnyConnected ? (
+        {/* Mobile WalletConnect Auto-Connect State - shown after network selection on mobile */}
+        {isMobile && !hasInjectedWallet && mobileWalletConnectTriggered && selectedNetwork && !isAnyConnected ? (
           <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[250px]">
-            <div className="w-16 h-16 rounded-full bg-[#3b99fc]/10 flex items-center justify-center animate-pulse">
-              <Smartphone className="w-8 h-8 text-[#3b99fc]" />
+            <div className={cn(
+              "w-16 h-16 rounded-full flex items-center justify-center animate-pulse",
+              selectedNetwork === 'ethereum' ? "bg-[#627EEA]/10" : "bg-[#EF0027]/10"
+            )}>
+              <Smartphone className={cn(
+                "w-8 h-8",
+                selectedNetwork === 'ethereum' ? "text-[#627EEA]" : "text-[#EF0027]"
+              )} />
             </div>
             <div className="text-center space-y-2">
               <h3 className="text-lg font-bold text-white">Opening WalletConnect</h3>
               <p className="text-sm text-muted-foreground max-w-[260px]">
-                Scan the QR code or select your wallet from the list to connect.
+                {selectedNetwork === 'ethereum' 
+                  ? 'Scan the QR code or select your EVM wallet to connect.'
+                  : 'Scan the QR code with Trust Wallet or TronLink to connect.'}
               </p>
             </div>
             <div className="flex items-center gap-2 text-muted-foreground text-xs">
-              <Loader2 className="w-4 h-4 animate-spin text-[#3b99fc]" />
-              <span>Waiting for wallet connection...</span>
+              <Loader2 className={cn(
+                "w-4 h-4 animate-spin",
+                selectedNetwork === 'ethereum' ? "text-[#627EEA]" : "text-[#EF0027]"
+              )} />
+              <span>Waiting for {selectedNetwork === 'ethereum' ? 'EVM' : 'TRON'} wallet connection...</span>
             </div>
             {/* Option to go back to network selection */}
             <Button
@@ -258,10 +289,11 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
               onClick={() => {
                 setMobileWalletConnectTriggered(false);
                 setConnectingId(null);
+                setSelectedNetwork(null);
               }}
               className="text-muted-foreground hover:text-white text-xs"
             >
-              Choose network manually
+              Change network
             </Button>
           </div>
         ) : !selectedNetwork ? (
