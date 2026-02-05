@@ -222,15 +222,19 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
                 <p className="text-[10px] text-gray-400 mb-4 leading-tight max-w-[120px]">
                     Unlock exclusive rewards & weekly cashback
                 </p>
-                <Button className="w-full h-9 bg-gradient-to-r from-casino-brand to-emerald-500 text-black font-extrabold text-xs shadow-lg shadow-casino-brand/20 hover:shadow-casino-brand/40 hover:scale-105 transition-all duration-300 border-0">
-                  JOIN CLUB
-                </Button>
+                <Link href="/vip" className="w-full">
+                  <Button className="w-full h-9 bg-gradient-to-r from-casino-brand to-emerald-500 text-black font-extrabold text-xs shadow-lg shadow-casino-brand/20 hover:shadow-casino-brand/40 hover:scale-105 transition-all duration-300 border-0">
+                    JOIN CLUB
+                  </Button>
+                </Link>
             </div>
           </div>
         ) : (
-           <Button size="icon" variant="ghost" className="w-full h-12 rounded-xl justify-center text-yellow-500 bg-yellow-500/5 hover:bg-yellow-500/20 transition-all hover:scale-110">
-             <Crown className="h-6 w-6" />
-           </Button>
+           <Link href="/vip">
+             <Button size="icon" variant="ghost" className="w-full h-12 rounded-xl justify-center text-yellow-500 bg-yellow-500/5 hover:bg-yellow-500/20 transition-all hover:scale-110">
+               <Crown className="h-6 w-6" />
+             </Button>
+           </Link>
         )}
       </div>
     </div>
