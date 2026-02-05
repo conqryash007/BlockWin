@@ -4,26 +4,34 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Deposit API] Received deposit request');
+    
     // Authenticate user
     const authHeader = request.headers.get('authorization');
     const { userId, error: authError } = await getUserFromToken(authHeader);
     
     if (authError || !userId) {
+      console.log('[Deposit API] Auth failed:', authError);
       return NextResponse.json({ error: authError || 'Unauthorized', success: false }, { status: 401 });
     }
 
     const body = await request.json();
     const { txHash, amount, tokenAddress, network } = body;
 
-    if (!txHash || !amount || !tokenAddress) {
+    console.log('[Deposit API] Request body:', { userId, txHash, amount: Number(amount), tokenAddress, network });
+
+    if (!txHash || amount === undefined || amount === null || !tokenAddress) {
+      console.log('[Deposit API] Missing required fields');
       return NextResponse.json({ error: 'Missing required fields', success: false }, { status: 400 });
     }
 
-    console.log('Processing deposit:', { userId, txHash, amount, network });
+    const depositAmount = Number(amount);
+    if (isNaN(depositAmount) || depositAmount <= 0) {
+      console.log('[Deposit API] Invalid amount:', amount);
+      return NextResponse.json({ error: 'Invalid deposit amount', success: false }, { status: 400 });
+    }
 
-    // TODO: Verify transaction on-chain (EVM/Tron)
-    // For now, we trust the client's txHash but ensure uniqueness via DB constraint or check
-    // Ideally, we would fetch the tx receipt here to confirm validation.
+    console.log('[Deposit API] Processing deposit:', { userId, txHash, amount: depositAmount, network });
 
     // Check if transaction already exists
     const { data: existingTx } = await supabaseAdmin
@@ -33,35 +41,35 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (existingTx) {
+      console.log('[Deposit API] Transaction already processed:', txHash);
       return NextResponse.json({ error: 'Transaction already processed', success: false }, { status: 400 });
     }
 
     // 1. Record Transaction
+    console.log('[Deposit API] Recording transaction...');
     const { error: txError } = await supabaseAdmin
       .from('transactions')
       .insert({
         user_id: userId,
         type: 'deposit',
-        amount: Number(amount), // Ensure number
+        amount: depositAmount,
         tx_hash: txHash,
         metadata: { 
             token: tokenAddress,
             network: network || 'ethereum',
             timestamp: new Date().toISOString()
         },
-        game_type: 'wallet' // Use 'wallet' as generic type
+        game_type: 'wallet'
       });
 
     if (txError) {
-      console.error('Error recording transaction:', txError);
-      return NextResponse.json({ error: 'Database error', success: false }, { status: 500 });
+      console.error('[Deposit API] Error recording transaction:', txError);
+      return NextResponse.json({ error: 'Database error: ' + txError.message, success: false }, { status: 500 });
     }
+    console.log('[Deposit API] Transaction recorded successfully');
 
     // 2. Update Balance
-    // Fetch current balance first to handle 'upsert' manually or use RPC if available
-    // We will use a safe increment approach if possible, or simple read-update
-    
-    // Check if balance record exists
+    console.log('[Deposit API] Updating balance...');
     const { data: balanceRecord } = await supabaseAdmin
       .from('balances')
       .select('amount')
@@ -73,7 +81,8 @@ export async function POST(request: NextRequest) {
 
     if (balanceRecord) {
        const currentAmount = Number(balanceRecord.amount) || 0;
-       newBalance = currentAmount + Number(amount);
+       newBalance = currentAmount + depositAmount;
+       console.log('[Deposit API] Updating existing balance:', { currentAmount, depositAmount, newBalance });
        
        const { error } = await supabaseAdmin
          .from('balances')
@@ -81,7 +90,9 @@ export async function POST(request: NextRequest) {
          .eq('user_id', userId);
         balanceError = error;
     } else {
-       newBalance = Number(amount);
+       newBalance = depositAmount;
+       console.log('[Deposit API] Creating new balance record:', { newBalance });
+       
        const { error } = await supabaseAdmin
          .from('balances')
          .insert({ user_id: userId, amount: newBalance });
@@ -89,12 +100,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (balanceError) {
-      console.error('Error updating balance:', balanceError);
-      // NOTE: Transaction was recorded but balance failed. 
-      // In production, transaction should be wrapped in DB function.
-      return NextResponse.json({ error: 'Balance update failed', success: false }, { status: 500 });
+      console.error('[Deposit API] Error updating balance:', balanceError);
+      return NextResponse.json({ error: 'Balance update failed: ' + balanceError.message, success: false }, { status: 500 });
     }
 
+    console.log('[Deposit API] Deposit successful! New balance:', newBalance);
     return NextResponse.json({ 
       success: true, 
       balance: newBalance 

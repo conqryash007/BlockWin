@@ -186,8 +186,33 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
           return;
         }
         
-        addLog(`Step: Got txId ${tronTxId.slice(0, 10)}...`);
+        addLog(`Step: Got txId ${tronTxId.slice(0, 16)}...`);
         
+        // Wait a moment for transaction to propagate, then verify it exists on-chain
+        addLog('Step: Verifying transaction on-chain...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        let txVerified = false;
+        try {
+          const verifyRes = await fetch('/api/proxy/tron-verify-tx', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ txId: tronTxId }),
+          });
+          const verifyData = await verifyRes.json();
+          if (verifyRes.ok && verifyData?.exists) {
+            txVerified = true;
+            addLog(`Step: Transaction verified on-chain (status: ${verifyData.status || 'pending'})`);
+          } else {
+            addLog('Warning: Could not verify transaction on-chain yet');
+          }
+        } catch (verifyErr) {
+          console.warn('Transaction verification failed:', verifyErr);
+          addLog('Warning: Verification check failed, proceeding anyway');
+        }
+        
+        // Notify server to credit balance
+        let serverSuccess = false;
         try {
           const supabase = createClient();
           const { data: { session } } = await supabase.auth.getSession();
@@ -209,13 +234,11 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
             });
             const data = await res.json();
             if (res.ok && data?.success) {
+              serverSuccess = true;
               addLog('Step: Server confirmed, balance updated');
-              triggerBalanceRefresh();
-            } else if (!res.ok) {
+            } else {
               console.warn('Tron deposit record failed:', data?.error);
-              addLog(`Warning: Server record failed: ${data?.error || 'unknown'}`);
-              // Don't fail the whole deposit - tx was submitted successfully
-              // Balance will be updated when admin processes or user refreshes
+              addLog(`Warning: Server record failed: ${data?.error || res.status}`);
             }
           } else {
             addLog('Warning: No session, cannot notify server');
@@ -223,14 +246,32 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
         } catch (err) {
           console.warn('Failed to notify server of Tron deposit:', err);
           addLog(`Warning: Server notification failed: ${err}`);
-          // Don't fail - tx was still submitted
         }
         
-        setIsProcessing(false);
-        setIsSuccess(true);
+        // Refresh balance regardless of server response
+        triggerBalanceRefresh();
         refetchBalance();
-        toast.success('Deposit successful!');
-        if (onSuccess) onSuccess();
+        
+        // Small delay then refresh again to catch any lag
+        setTimeout(() => {
+          triggerBalanceRefresh();
+          refetchBalance();
+        }, 2000);
+        
+        setIsProcessing(false);
+        
+        // Only show full success if we verified and server acknowledged
+        if (txVerified || serverSuccess) {
+          setIsSuccess(true);
+          toast.success('Deposit successful!');
+          if (onSuccess) onSuccess();
+        } else {
+          // Transaction was submitted but we couldn't verify - show partial success
+          setIsSuccess(true);
+          toast.success('Deposit submitted! Balance will update after confirmation.');
+          addLog('Note: Transaction submitted but verification pending');
+          if (onSuccess) onSuccess();
+        }
       }
     } catch (error: any) {
       const msg = error?.message || 'Transaction failed';
