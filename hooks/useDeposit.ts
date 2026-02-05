@@ -137,7 +137,20 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           const signedTx = await signTransaction(wrapper.transaction);
-          await tronWeb.trx.sendRawTransaction(signedTx);
+          
+          // Validate signed transaction
+          if (!signedTx) {
+            throw new Error('Approval signing was cancelled or failed');
+          }
+          
+          const result = await tronWeb.trx.sendRawTransaction(signedTx);
+          
+          // Check if broadcast was successful
+          const broadcastResult = result as { result?: boolean; code?: string; message?: string };
+          if (broadcastResult.result === false) {
+            const errorMsg = broadcastResult.message || broadcastResult.code || 'Approval broadcast failed';
+            throw new Error(errorMsg);
+          }
 
           toast.success('Tron USDT unlimited approval submitted.');
           return true;
@@ -225,9 +238,14 @@ Timestamp: ${new Date().toISOString()}`;
           const contract = await injected.contract().at(casinoAddress);
           const txIdRaw = await (contract as any).deposit(tokenAddress, amount.toString()).send();
           const txId = typeof txIdRaw === 'string' ? txIdRaw : (txIdRaw?.txid ?? (txIdRaw as any)?.transaction?.txID);
-          if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
+          
+          if (!txId || typeof txId !== 'string') {
+            throw new Error('Transaction was submitted but no transaction ID was returned. Please check your wallet for the transaction status.');
+          }
+          
+          setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
           toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-          return (typeof txId === 'string' ? txId : undefined) ?? true;
+          return txId;
         }
 
         // No injected TronWeb (e.g. Trust Wallet via WalletConnect): build tx, sign via adapter, broadcast
@@ -258,11 +276,36 @@ Timestamp: ${new Date().toISOString()}`;
         }
 
         const signedTx = await signTransaction(wrapper.transaction);
+        
+        // Validate signed transaction
+        if (!signedTx) {
+          throw new Error('Transaction signing was cancelled or failed');
+        }
+
         const result = await tronWeb.trx.sendRawTransaction(signedTx);
-        const txId = (result as { txid?: string })?.txid;
-        if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
+        
+        // Check if broadcast was successful - sendRawTransaction returns { result: false } on failure
+        const broadcastResult = result as { result?: boolean; txid?: string; code?: string; message?: string };
+        if (broadcastResult.result === false) {
+          const errorMsg = broadcastResult.message || broadcastResult.code || 'Transaction broadcast failed';
+          throw new Error(errorMsg);
+        }
+        
+        const txId = broadcastResult.txid;
+        if (!txId) {
+          // Try to extract from signed transaction as fallback
+          const fallbackTxId = (signedTx as any)?.txID;
+          if (fallbackTxId) {
+            setDepositHash(fallbackTxId.startsWith('0x') ? (fallbackTxId as `0x${string}`) : (`0x${fallbackTxId}` as `0x${string}`));
+            toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
+            return fallbackTxId;
+          }
+          throw new Error('Transaction was submitted but no transaction ID was returned. Please check your wallet for the transaction status.');
+        }
+        
+        setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
         toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-        return txId ?? true;
+        return txId;
       } catch (error: any) {
         console.error('Tron deposit error:', error);
         if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {

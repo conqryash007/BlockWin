@@ -178,41 +178,71 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose, onNetworkChan
       addLog('Step: Sending deposit…');
       toast.info('Please confirm the deposit...');
       const depositResult = await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
+      
+      // Check if deposit failed (returned false)
+      if (depositResult === false) {
+        addLog('Error: Deposit transaction failed or was rejected');
+        setDepositError('Deposit failed. Please check your wallet and try again.');
+        setIsProcessing(false);
+        return;
+      }
+      
       addLog('Step: Deposit submitted');
 
       // Tron: no webhook; notify server so it records the tx and credits balance (like EVM webhook does)
       if (depositResult && selectedNetwork === 'tron') {
         const tronTxId = typeof depositResult === 'string' ? depositResult : null;
-        if (tronTxId) {
-          try {
-            const supabase = createClient();
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.access_token) {
-              const depositAmount = amount ? parseFloat(amount) : 0;
-              const res = await fetch('/api/wallet/deposit', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({
-                  txHash: tronTxId,
-                  amount: depositAmount,
-                  tokenAddress: tokenAddress,
-                  network: 'tron',
-                }),
-              });
-              const data = await res.json();
-              if (res.ok && data?.success) {
-                triggerBalanceRefresh();
-              } else if (!res.ok) {
-                console.warn('Tron deposit record failed:', data?.error);
-              }
-            }
-          } catch (err) {
-            console.warn('Failed to notify server of Tron deposit:', err);
-          }
+        
+        // If depositResult is true (boolean) but not a string txId, it means
+        // something went wrong with getting the transaction ID
+        if (!tronTxId) {
+          addLog('Error: No transaction ID returned from wallet');
+          setDepositError('Transaction may have been submitted but no ID was returned. Please check your wallet for the transaction status.');
+          toast.error('Deposit failed: Unable to confirm transaction. Please check your wallet.');
+          setIsProcessing(false);
+          return;
         }
+        
+        addLog(`Step: Got txId ${tronTxId.slice(0, 10)}...`);
+        
+        try {
+          const supabase = createClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const depositAmount = amount ? parseFloat(amount) : 0;
+            addLog('Step: Notifying server...');
+            const res = await fetch('/api/wallet/deposit', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({
+                txHash: tronTxId,
+                amount: depositAmount,
+                tokenAddress: tokenAddress,
+                network: 'tron',
+              }),
+            });
+            const data = await res.json();
+            if (res.ok && data?.success) {
+              addLog('Step: Server confirmed, balance updated');
+              triggerBalanceRefresh();
+            } else if (!res.ok) {
+              console.warn('Tron deposit record failed:', data?.error);
+              addLog(`Warning: Server record failed: ${data?.error || 'unknown'}`);
+              // Don't fail the whole deposit - tx was submitted successfully
+              // Balance will be updated when admin processes or user refreshes
+            }
+          } else {
+            addLog('Warning: No session, cannot notify server');
+          }
+        } catch (err) {
+          console.warn('Failed to notify server of Tron deposit:', err);
+          addLog(`Warning: Server notification failed: ${err}`);
+          // Don't fail - tx was still submitted
+        }
+        
         setIsProcessing(false);
         setIsSuccess(true);
         refetchBalance();
