@@ -137,14 +137,15 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           console.log('[Tron Approval] Built transaction, requesting signature...');
+          toast.info('Please confirm the approval in your wallet...');
           
           let signedTx: any;
           try {
             signedTx = await signTransaction(wrapper.transaction);
           } catch (signError: any) {
             console.error('[Tron Approval] Sign error:', signError);
-            const msg = signError?.message || '';
-            if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied') || msg.includes('User rejected')) {
+            const msg = signError?.message?.toLowerCase() || '';
+            if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied') || msg.includes('user rejected') || msg.includes('user denied')) {
               throw new Error('Approval was rejected by user');
             }
             throw new Error(signError?.message || 'Failed to sign approval');
@@ -155,45 +156,86 @@ Timestamp: ${new Date().toISOString()}`;
             throw new Error('Approval signing was cancelled or failed');
           }
           
-          console.log('[Tron Approval] Signed tx result:', JSON.stringify(signedTx).slice(0, 200));
+          console.log('[Tron Approval] Signed tx result type:', typeof signedTx);
           
-          // Mobile wallets often sign AND broadcast in one step
-          const alreadyBroadcastTxId = (signedTx as any)?.txid || (signedTx as any)?.txID || 
-            (typeof signedTx === 'string' && signedTx.length === 64 ? signedTx : null);
+          const txIdFromSigned = (signedTx as any)?.txID || (signedTx as any)?.txid;
+          console.log('[Tron Approval] TxID from signed:', txIdFromSigned);
           
-          if (alreadyBroadcastTxId) {
-            console.log('[Tron Approval] Wallet already broadcast, txId:', alreadyBroadcastTxId);
-            toast.success('Tron USDT unlimited approval submitted.');
-            return true;
-          }
+          // Always try to broadcast
+          console.log('[Tron Approval] Attempting to broadcast...');
+          toast.info('Broadcasting approval...');
           
-          // Need to broadcast ourselves
-          console.log('[Tron Approval] Broadcasting signed transaction...');
-          let result: any;
+          let broadcastSuccess = false;
+          let finalTxId = txIdFromSigned;
+          
           try {
-            result = await tronWeb.trx.sendRawTransaction(signedTx);
-          } catch (broadcastError: any) {
-            console.error('[Tron Approval] Broadcast error:', broadcastError);
-            const errMsg = broadcastError?.message || '';
-            if (errMsg.includes('ALREADY_EXIST') || errMsg.includes('DUP_TRANSACTION')) {
-              console.log('[Tron Approval] Already broadcast (duplicate)');
-              toast.success('Tron USDT unlimited approval submitted.');
-              return true;
+            const result = await tronWeb.trx.sendRawTransaction(signedTx);
+            console.log('[Tron Approval] Broadcast result:', JSON.stringify(result).slice(0, 300));
+            
+            const broadcastResult = result as { result?: boolean; txid?: string; code?: string; message?: string };
+            
+            if (broadcastResult.result === true) {
+              broadcastSuccess = true;
+              finalTxId = broadcastResult.txid || txIdFromSigned;
+            } else if (broadcastResult.result === false) {
+              const code = broadcastResult.code || '';
+              const msg = broadcastResult.message || '';
+              
+              if (code.includes('DUP') || msg.includes('DUP') || code.includes('ALREADY') || msg.includes('ALREADY')) {
+                broadcastSuccess = true;
+              } else {
+                throw new Error(msg || code || 'Approval broadcast failed');
+              }
+            } else if (broadcastResult.txid) {
+              broadcastSuccess = true;
+              finalTxId = broadcastResult.txid;
             }
-            throw new Error(broadcastError?.message || 'Failed to broadcast approval');
+          } catch (broadcastError: any) {
+            const errMsg = broadcastError?.message || '';
+            console.error('[Tron Approval] Broadcast error:', errMsg);
+            
+            if (errMsg.includes('ALREADY_EXIST') || errMsg.includes('DUP_TRANSACTION') || errMsg.includes('Transaction already exists')) {
+              broadcastSuccess = true;
+            } else {
+              throw new Error(errMsg || 'Failed to broadcast approval');
+            }
           }
           
-          console.log('[Tron Approval] Broadcast result:', JSON.stringify(result).slice(0, 200));
+          if (!finalTxId) {
+            throw new Error('No transaction ID available for approval');
+          }
           
-          // Check if broadcast was successful
-          const broadcastResult = result as { result?: boolean; code?: string; message?: string };
-          if (broadcastResult.result === false) {
-            const errorMsg = broadcastResult.message || broadcastResult.code || 'Approval broadcast failed';
-            console.error('[Tron Approval] Broadcast failed:', errorMsg);
-            throw new Error(errorMsg);
+          // Verify the approval transaction exists on-chain
+          console.log('[Tron Approval] Verifying on-chain:', finalTxId);
+          toast.info('Verifying approval...');
+          
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          let verified = false;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const txInfo = await tronWeb.trx.getTransaction(finalTxId);
+              if (txInfo && txInfo.txID) {
+                verified = true;
+                console.log('[Tron Approval] Transaction verified!');
+                break;
+              }
+            } catch (verifyErr) {
+              console.log('[Tron Approval] Verify attempt', attempt + 1, 'failed');
+            }
+            
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+          
+          if (!verified) {
+            console.error('[Tron Approval] Transaction NOT found on-chain');
+            throw new Error('Approval transaction could not be verified. It may have been rejected. Please try again.');
           }
 
-          toast.success('Tron USDT unlimited approval submitted.');
+          console.log('[Tron Approval] Success! Verified');
+          toast.success('Tron USDT approval confirmed!');
           return true;
         } catch (error: any) {
           console.error('Tron approval error:', error);
@@ -317,6 +359,7 @@ Timestamp: ${new Date().toISOString()}`;
         }
 
         console.log('[Tron Deposit] Built transaction, requesting signature...');
+        toast.info('Please confirm the transaction in your wallet...');
         
         let signedTx: any;
         try {
@@ -324,73 +367,113 @@ Timestamp: ${new Date().toISOString()}`;
         } catch (signError: any) {
           console.error('[Tron Deposit] Sign error:', signError);
           // User rejected or wallet error
-          const msg = signError?.message || '';
-          if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied') || msg.includes('User rejected')) {
+          const msg = signError?.message?.toLowerCase() || '';
+          if (msg.includes('reject') || msg.includes('cancel') || msg.includes('denied') || msg.includes('user rejected') || msg.includes('user denied')) {
             throw new Error('Transaction was rejected by user');
           }
           throw new Error(signError?.message || 'Failed to sign transaction');
         }
         
-        // Validate signed transaction - different wallets return different formats
+        // Validate signed transaction
         if (!signedTx) {
           throw new Error('Transaction signing was cancelled or failed');
         }
         
-        console.log('[Tron Deposit] Signed tx result:', JSON.stringify(signedTx).slice(0, 200));
+        console.log('[Tron Deposit] Signed tx result type:', typeof signedTx);
+        console.log('[Tron Deposit] Signed tx keys:', signedTx ? Object.keys(signedTx) : 'null');
         
-        // Mobile wallets (WalletConnect) often sign AND broadcast in one step
-        // Check if signedTx already contains a txid (meaning it was already broadcast)
-        const alreadyBroadcastTxId = (signedTx as any)?.txid || (signedTx as any)?.txID || 
-          (typeof signedTx === 'string' && signedTx.length === 64 ? signedTx : null);
+        // Get the transaction ID from the signed transaction
+        // Note: txID exists even before broadcast - it's just the hash of the transaction
+        const txIdFromSigned = (signedTx as any)?.txID || (signedTx as any)?.txid;
+        console.log('[Tron Deposit] TxID from signed:', txIdFromSigned);
         
-        if (alreadyBroadcastTxId) {
-          console.log('[Tron Deposit] Wallet already broadcast, txId:', alreadyBroadcastTxId);
-          setDepositHash(alreadyBroadcastTxId.startsWith('0x') ? (alreadyBroadcastTxId as `0x${string}`) : (`0x${alreadyBroadcastTxId}` as `0x${string}`));
-          toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-          return alreadyBroadcastTxId;
-        }
+        // Always try to broadcast - the wallet might have only signed, not broadcast
+        console.log('[Tron Deposit] Attempting to broadcast transaction...');
+        toast.info('Broadcasting transaction...');
         
-        // Need to broadcast the signed transaction ourselves
-        console.log('[Tron Deposit] Broadcasting signed transaction...');
-        let result: any;
+        let broadcastSuccess = false;
+        let finalTxId = txIdFromSigned;
+        
         try {
-          result = await tronWeb.trx.sendRawTransaction(signedTx);
-        } catch (broadcastError: any) {
-          console.error('[Tron Deposit] Broadcast error:', broadcastError);
-          // Check if it's a duplicate transaction error (already broadcast by wallet)
-          const errMsg = broadcastError?.message || '';
-          if (errMsg.includes('ALREADY_EXIST') || errMsg.includes('DUP_TRANSACTION')) {
-            // Transaction was already broadcast, try to get txID from signed tx
-            const txIdFromSigned = (signedTx as any)?.txID;
-            if (txIdFromSigned) {
-              console.log('[Tron Deposit] Already broadcast (duplicate), using txID from signed tx');
-              setDepositHash(txIdFromSigned.startsWith('0x') ? (txIdFromSigned as `0x${string}`) : (`0x${txIdFromSigned}` as `0x${string}`));
-              toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-              return txIdFromSigned;
+          const result = await tronWeb.trx.sendRawTransaction(signedTx);
+          console.log('[Tron Deposit] Broadcast result:', JSON.stringify(result).slice(0, 300));
+          
+          const broadcastResult = result as { result?: boolean; txid?: string; code?: string; message?: string };
+          
+          if (broadcastResult.result === true) {
+            broadcastSuccess = true;
+            finalTxId = broadcastResult.txid || txIdFromSigned;
+            console.log('[Tron Deposit] Broadcast successful, txId:', finalTxId);
+          } else if (broadcastResult.result === false) {
+            const code = broadcastResult.code || '';
+            const msg = broadcastResult.message || '';
+            console.log('[Tron Deposit] Broadcast returned false:', code, msg);
+            
+            // Check if it's because the tx was already broadcast (duplicate)
+            if (code.includes('DUP') || msg.includes('DUP') || code.includes('ALREADY') || msg.includes('ALREADY')) {
+              console.log('[Tron Deposit] Transaction already broadcast by wallet');
+              broadcastSuccess = true; // Already broadcast is fine
+            } else {
+              throw new Error(msg || code || 'Transaction broadcast failed');
+            }
+          } else {
+            // Some wallets return the txid directly
+            if (broadcastResult.txid) {
+              broadcastSuccess = true;
+              finalTxId = broadcastResult.txid;
             }
           }
-          throw new Error(broadcastError?.message || 'Failed to broadcast transaction');
+        } catch (broadcastError: any) {
+          const errMsg = broadcastError?.message || '';
+          console.error('[Tron Deposit] Broadcast error:', errMsg);
+          
+          // Check if already broadcast
+          if (errMsg.includes('ALREADY_EXIST') || errMsg.includes('DUP_TRANSACTION') || errMsg.includes('Transaction already exists')) {
+            console.log('[Tron Deposit] Transaction already exists on network');
+            broadcastSuccess = true;
+          } else {
+            throw new Error(errMsg || 'Failed to broadcast transaction');
+          }
         }
         
-        console.log('[Tron Deposit] Broadcast result:', JSON.stringify(result).slice(0, 200));
-        
-        // Check if broadcast was successful - sendRawTransaction returns { result: false } on failure
-        const broadcastResult = result as { result?: boolean; txid?: string; code?: string; message?: string };
-        if (broadcastResult.result === false) {
-          const errorMsg = broadcastResult.message || broadcastResult.code || 'Transaction broadcast failed';
-          console.error('[Tron Deposit] Broadcast failed:', errorMsg);
-          throw new Error(errorMsg);
+        if (!finalTxId) {
+          throw new Error('No transaction ID available');
         }
         
-        const txId = broadcastResult.txid || (signedTx as any)?.txID;
-        if (!txId) {
-          throw new Error('Transaction may have been submitted but no ID was returned. Please check your wallet.');
+        // CRITICAL: Verify the transaction actually exists on-chain
+        // Wait a moment for propagation, then check
+        console.log('[Tron Deposit] Verifying transaction on-chain:', finalTxId);
+        toast.info('Verifying transaction...');
+        
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+        
+        let verified = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const txInfo = await tronWeb.trx.getTransaction(finalTxId);
+            if (txInfo && txInfo.txID) {
+              verified = true;
+              console.log('[Tron Deposit] Transaction verified on-chain!');
+              break;
+            }
+          } catch (verifyErr) {
+            console.log('[Tron Deposit] Verify attempt', attempt + 1, 'failed:', verifyErr);
+          }
+          
+          if (attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 more seconds
+          }
         }
         
-        console.log('[Tron Deposit] Success, txId:', txId);
-        setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
-        toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-        return txId;
+        if (!verified) {
+          console.error('[Tron Deposit] Transaction NOT found on-chain after verification attempts');
+          throw new Error('Transaction could not be verified on the blockchain. It may have been rejected or not broadcast. Please check your wallet.');
+        }
+        
+        console.log('[Tron Deposit] Success! Verified txId:', finalTxId);
+        setDepositHash(finalTxId.startsWith('0x') ? (finalTxId as `0x${string}`) : (`0x${finalTxId}` as `0x${string}`));
+        toast.info('Deposit confirmed on Tron network!');
+        return finalTxId;
       } catch (error: any) {
         console.error('Tron deposit error:', error);
         if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {
