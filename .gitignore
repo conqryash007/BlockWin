@@ -8,6 +8,7 @@ out
 # Environment variables
 .env
 .env.local
+.env.local.tron
 .env.development.local
 .env.test.local
 .env.production.local
