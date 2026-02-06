@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase';
 
 // Custom event name for balance updates
 const BALANCE_UPDATED_EVENT = 'balance-updated';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+// Use the browser client that has access to the user's auth session
+const supabase = createClient();
 
 /**
  * Trigger a balance refresh across all components using usePlatformBalance.
@@ -23,36 +21,38 @@ export function triggerBalanceRefresh() {
 }
 
 export function usePlatformBalance() {
-  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [balance, setBalance] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
+  const userIdRef = useRef<string | null>(null);
 
   const fetchBalance = useCallback(async () => {
-    if (!address || !isConnected) {
-      setBalance(0);
-      return;
-    }
-
+    // Balance is tied to authenticated user (Google login), NOT wallet connection
+    // User can view their balance even without a wallet connected
     setIsLoading(true);
-    console.log('Fetching balance for address:', address.toLowerCase());
     
     try {
       // Get current authenticated user
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
       
-      if (authError || !user) {
+      if (authError || !authUser) {
          console.log('No authenticated user found');
-         // Fallback? No, strict mode requires auth.
          setBalance(0);
          setIsLoading(false);
+         userIdRef.current = null;
          return;
       }
 
-      // Query balance by user_id
+      console.log('Fetching balance for user:', authUser.id);
+      
+      // Store user ID for real-time subscription
+      userIdRef.current = authUser.id;
+
+      // Query balance by user_id (NOT wallet address)
       const { data: balanceData, error: balanceError } = await supabase
         .from('balances')
         .select('amount')
-        .eq('user_id', user.id)
+        .eq('user_id', authUser.id)
         .maybeSingle();
 
       console.log('Balance lookup result:', { balanceData, balanceError });
@@ -72,12 +72,55 @@ export function usePlatformBalance() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, isConnected]);
+  }, []);
 
-  // Fetch on mount and when address changes
+  // Fetch on mount and when authentication state changes
   useEffect(() => {
-    fetchBalance();
-  }, [fetchBalance]);
+    if (isAuthenticated) {
+      fetchBalance();
+    } else {
+      setBalance(0);
+    }
+  }, [fetchBalance, isAuthenticated]);
+
+  // Real-time subscription for balance updates
+  // This ensures the balance updates automatically when the webhook processes a deposit
+  useEffect(() => {
+    const userId = user?.id || userIdRef.current;
+    if (!userId) return;
+
+    console.log('Setting up real-time balance subscription for user:', userId);
+
+    const channel = supabase
+      .channel(`balance-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'balances',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          console.log('Real-time balance update received:', payload);
+          if (payload.new && 'amount' in payload.new) {
+            const newBalance = Number(payload.new.amount) || 0;
+            console.log('Updating balance to:', newBalance);
+            setBalance(newBalance);
+          } else if (payload.eventType === 'DELETE') {
+            setBalance(0);
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Balance subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up balance subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   // Listen for Supabase auth state changes (account switch triggers sign out/sign in)
   useEffect(() => {
@@ -86,6 +129,7 @@ export function usePlatformBalance() {
       if (event === 'SIGNED_OUT') {
         // Immediately reset balance when signed out
         setBalance(0);
+        userIdRef.current = null;
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         // Fetch balance when signed in or token refreshed
         fetchBalance();

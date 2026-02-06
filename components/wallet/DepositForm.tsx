@@ -101,12 +101,22 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     }
   }, [selectedNetwork, refetchTronAllowance]);
 
-  // Handle deposit success
+  // Handle deposit success (for EVM deposits via wagmi's depositSuccess)
   useEffect(() => {
     if (depositSuccess && isProcessing) {
       setIsProcessing(false);
       setIsSuccess(true);
-      refetchBalance();
+      refetchBalance(); // Refresh on-chain token balance
+      
+      // Trigger platform balance refresh with delays to allow webhook processing
+      setTimeout(() => {
+        triggerBalanceRefresh();
+      }, 2000);
+      
+      setTimeout(() => {
+        triggerBalanceRefresh();
+      }, 5000);
+      
       toast.success('Deposit successful!');
       if (onSuccess) onSuccess();
     }

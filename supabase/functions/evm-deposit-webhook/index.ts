@@ -79,16 +79,35 @@ Deno.serve(async (req: Request) => {
           // Handle Alchemy Activity (Transfer)
           const activity = log.data;
           txHash = activity.hash;
+          
+          // For deposits TO the casino contract, the user is the sender (fromAddress)
+          // The toAddress would be the casino contract being monitored
           userAddress = activity.fromAddress;
-          tokenAddress = activity.rawContract?.address || activity.asset; // Best effort
-          amountStr = activity.rawContract?.rawValue || '0'; // Hex wei
+          
+          // Get token address - rawContract.address for ERC20 tokens
+          // activity.asset will be "ETH" for native transfers, which we skip
+          const rawTokenAddress = activity.rawContract?.address;
+          
+          // Skip native ETH/currency transfers - we only support stablecoin deposits
+          // Also skip if asset is ETH or if rawTokenAddress is missing/invalid
+          if (!rawTokenAddress || 
+              activity.asset === 'ETH' || 
+              activity.category === 'external' ||
+              rawTokenAddress === 'ETH' ||
+              !rawTokenAddress.startsWith('0x') ||
+              rawTokenAddress.length !== 42) {
+              console.log(`Skipping native/invalid transfer (asset: ${activity.asset}, category: ${activity.category}, rawToken: ${rawTokenAddress})`);
+              continue;
+          }
+          
+          tokenAddress = rawTokenAddress;
+          amountStr = activity.rawContract?.rawValue || activity.value?.toString() || '0';
           
           if (activity.rawContract?.decimals) {
               extractedDecimals = Number(activity.rawContract.decimals);
           }
           
-          // Verify it's an incoming transfer (implied by webhook config, but good to check metadata if needed)
-          // We assume 'from' is user.
+          console.log(`Processing ERC20 transfer: token=${tokenAddress}, amount=${amountStr}, to=${userAddress}`);
           
       } else if (log.topics && log.topics.length > 0) {
         // Standard Event Log
@@ -102,8 +121,15 @@ Deno.serve(async (req: Request) => {
             continue;
         }
 
-        userAddress = ethers.stripZerosLeft(log.topics[1]);
-        tokenAddress = ethers.stripZerosLeft(log.topics[2]);
+        // Extract addresses from topics (they are 32-byte padded)
+        // Use getAddress to properly parse the padded address
+        try {
+            userAddress = ethers.getAddress('0x' + log.topics[1].slice(-40));
+            tokenAddress = ethers.getAddress('0x' + log.topics[2].slice(-40));
+        } catch (addrError) {
+            console.log(`Failed to parse addresses from topics:`, addrError);
+            continue;
+        }
         
         const abiCoder = new ethers.AbiCoder();
         const decodedData = abiCoder.decode(['uint256', 'uint256'], log.data);
@@ -135,8 +161,20 @@ Deno.serve(async (req: Request) => {
         '0xaCAaBf070D3B9E5EBf416b9b950ED4B3E19c81Db': 6,  // DAI
       };
 
-      // Normalize Case
-      const normalizedTokenAddress = tokenAddress ? ethers.getAddress(tokenAddress) : ''; // Checksummed
+      // Validate and normalize token address
+      // Skip if tokenAddress is not a valid hex address (e.g., "ETH", empty, etc.)
+      if (!tokenAddress || !tokenAddress.startsWith('0x') || tokenAddress.length !== 42) {
+          console.log(`Skipping invalid token address: ${tokenAddress}`);
+          continue;
+      }
+      
+      let normalizedTokenAddress: string;
+      try {
+          normalizedTokenAddress = ethers.getAddress(tokenAddress); // Checksummed
+      } catch (e) {
+          console.log(`Failed to normalize token address ${tokenAddress}:`, e);
+          continue;
+      }
       
       let decimals = 18;
       if (extractedDecimals !== undefined) {

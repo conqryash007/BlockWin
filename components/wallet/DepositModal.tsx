@@ -241,8 +241,8 @@ export function DepositModal() {
     }
   };
 
-  // Proceed from Amount step
-  const handleAmountNext = () => {
+  // Proceed from Amount step - automatically handle approval and deposit
+  const handleAmountNext = async () => {
     if (!amount || parsedAmount <= BigInt(0)) {
       toast.error('Please enter an amount');
       return;
@@ -251,15 +251,70 @@ export function DepositModal() {
       toast.error('Insufficient balance');
       return;
     }
-    // Skip approval step if already approved
+    if (!selectedNetwork) return;
+
+    // If already approved, go directly to deposit step and auto-trigger deposit
     if (hasUnlimitedApproval) {
       setStep(5);
+      // Auto-trigger the deposit after a brief delay to let UI update
+      setTimeout(() => {
+        handleDeposit();
+      }, 100);
     } else {
+      // Need approval first - show approval step and auto-trigger approval
       setStep(4);
+      // Auto-trigger the approval popup after a brief delay
+      setTimeout(() => {
+        handleApproval();
+      }, 100);
     }
   };
 
-  // Handle approval
+  // After approval completes, automatically trigger deposit
+  const handleApprovalWithAutoDeposit = async () => {
+    if (!selectedNetwork) return;
+    
+    setIsProcessing(true);
+    try {
+      toast.info('Please approve token spending in your wallet...');
+      const approved = await approveUnlimited(tokenAddress, selectedNetwork);
+      
+      if (!approved) {
+        toast.error('Approval was rejected or failed');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Wait and refetch allowance
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      if (selectedNetwork === 'tron') {
+        await refetchTronAllowance();
+      } else {
+        await refetchEvmAllowance();
+      }
+
+      // Register wallet address AFTER successful approval
+      // This links the wallet to the user for webhook deposit matching
+      if (activeAddress) {
+        await registerWalletAddress(activeAddress, selectedNetwork);
+      }
+      
+      toast.success('Approval successful! Proceeding to deposit...');
+      setStep(5);
+      
+      // Auto-trigger deposit after approval completes
+      setIsProcessing(false);
+      setTimeout(() => {
+        handleDeposit();
+      }, 100);
+    } catch (error: any) {
+      console.error('Approval error:', error);
+      toast.error(error?.message || 'Approval failed');
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle approval - automatically triggers deposit after success
   const handleApproval = async () => {
     if (!selectedNetwork) return;
     
@@ -288,12 +343,17 @@ export function DepositModal() {
         await registerWalletAddress(activeAddress, selectedNetwork);
       }
       
-      toast.success('Approval successful!');
+      toast.success('Approval successful! Proceeding to deposit...');
       setStep(5);
+      setIsProcessing(false);
+      
+      // Auto-trigger the deposit popup after approval completes
+      setTimeout(() => {
+        handleDeposit();
+      }, 100);
     } catch (error: any) {
       console.error('Approval error:', error);
       toast.error(error?.message || 'Approval failed');
-    } finally {
       setIsProcessing(false);
     }
   };
@@ -396,8 +456,21 @@ export function DepositModal() {
         }
       } else if (depositResult) {
         // EVM or other networks
+        // The webhook will process the deposit and update the balance
+        // Wait a bit for the webhook to process, then trigger balance refresh
         setIsSuccess(true);
-        refetchBalance();
+        refetchBalance(); // Refresh on-chain token balance
+        
+        // Trigger platform balance refresh with a delay to allow webhook processing
+        setTimeout(() => {
+          triggerBalanceRefresh();
+        }, 2000);
+        
+        // Also trigger again after a longer delay in case webhook is slow
+        setTimeout(() => {
+          triggerBalanceRefresh();
+        }, 5000);
+        
         toast.success('Deposit successful!');
       }
     } catch (error: any) {
