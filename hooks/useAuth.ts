@@ -1,5 +1,10 @@
 import { createContext, useContext } from 'react';
 
+export interface WalletOwnershipResult {
+  isOwnedByOther: boolean;
+  ownerEmail?: string;
+}
+
 export interface AuthContextType {
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -25,6 +30,9 @@ export interface AuthContextType {
   // Wallet address registration (called after approval)
   registerWalletAddress: (address: string, network: 'ethereum' | 'tron') => Promise<void>;
   
+  // Wallet ownership check (check if wallet belongs to another account)
+  checkWalletOwnership: (address: string, network: 'ethereum' | 'tron') => Promise<WalletOwnershipResult>;
+  
   // Legacy/Mocked helpers to prevent breaking big refactors immediately
   accountStatus: 'unknown' | 'checking' | 'existing' | 'new';
   checkUserExists: (walletAddress: string) => Promise<boolean>;
@@ -42,3 +50,4 @@ export function useAuth() {
 
 // Re-export type for compatibility if imported elsewhere
 export type AccountStatus = 'unknown' | 'checking' | 'existing' | 'new';
+

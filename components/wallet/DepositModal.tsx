@@ -72,13 +72,16 @@ export function DepositModal() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [walletConflict, setWalletConflict] = useState<{ email: string } | null>(null);
+  const [isCheckingWallet, setIsCheckingWallet] = useState(false);
 
   // Auth & wallet state
   const { 
     isConnected: isEvmConnected, 
     isTronConnected, 
     activeAddress,
-    registerWalletAddress
+    registerWalletAddress,
+    checkWalletOwnership
   } = useAuth();
   
   // Wagmi hooks
@@ -190,6 +193,8 @@ export function DepositModal() {
       setIsProcessing(false);
       setIsSuccess(false);
       setConnectingId(null);
+      setWalletConflict(null);
+      setIsCheckingWallet(false);
     }
     setIsOpen(open);
   };
@@ -200,6 +205,25 @@ export function DepositModal() {
       setStep(3);
     }
   }, [step, isConnectedToSelectedNetwork, isWrongNetwork]);
+
+  // Check wallet ownership when entering Amount step (step 3)
+  useEffect(() => {
+    const checkOwnership = async () => {
+      if (step === 3 && activeAddress && selectedNetwork) {
+        setIsCheckingWallet(true);
+        setWalletConflict(null);
+        
+        const result = await checkWalletOwnership(activeAddress, selectedNetwork);
+        
+        if (result.isOwnedByOther && result.ownerEmail) {
+          setWalletConflict({ email: result.ownerEmail });
+        }
+        setIsCheckingWallet(false);
+      }
+    };
+    
+    checkOwnership();
+  }, [step, activeAddress, selectedNetwork, checkWalletOwnership]);
 
   // Reset token when network changes
   useEffect(() => {
@@ -747,6 +771,32 @@ export function DepositModal() {
                 )}
               </div>
 
+              {/* Wallet Conflict Warning */}
+              {isCheckingWallet && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                  <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+                  <span className="text-sm text-yellow-400">Checking wallet ownership...</span>
+                </div>
+              )}
+              
+              {walletConflict && !isCheckingWallet && (
+                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-red-400">Wallet Already Linked</span>
+                  </div>
+                  <p className="text-sm text-red-300/80">
+                    This wallet is already linked to another account:
+                  </p>
+                  <p className="text-sm font-mono text-red-400 bg-red-500/10 px-2 py-1 rounded break-all">
+                    {walletConflict.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Please connect a different wallet or login with the account above.
+                  </p>
+                </div>
+              )}
+
               {/* Token Selector */}
               <div className="space-y-2">
                 <span className="text-sm text-muted-foreground">Select Token</span>
@@ -823,7 +873,7 @@ export function DepositModal() {
               <Button 
                 onClick={handleAmountNext}
                 className="w-full h-12 bg-casino-brand hover:bg-casino-brand/90 text-black font-bold"
-                disabled={!amount || !hasSufficientBalance}
+                disabled={!amount || !hasSufficientBalance || !!walletConflict || isCheckingWallet}
               >
                 Continue
                 <ArrowRight className="ml-2 h-4 w-4" />

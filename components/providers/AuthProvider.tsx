@@ -139,6 +139,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase]);
 
+  // Check if a wallet is owned by another user - returns email if so
+  // This is called BEFORE deposit to warn users
+  const checkWalletOwnership = useCallback(async (walletAddress: string, network: 'ethereum' | 'tron') => {
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession?.user) {
+        return { isOwnedByOther: false };
+      }
+
+      const userId = currentSession.user.id;
+
+      // Check if this wallet is already registered
+      const { data: existingWallet } = await supabase
+        .from('wallet_addresses')
+        .select('user_id, users:user_id(email)')
+        .eq('address', walletAddress)
+        .eq('network', network)
+        .maybeSingle();
+
+      if (existingWallet && existingWallet.user_id !== userId) {
+        // Wallet belongs to another user
+        const ownerEmail = (existingWallet as any).users?.email || 'another account';
+        return { isOwnedByOther: true, ownerEmail };
+      }
+
+      return { isOwnedByOther: false };
+    } catch (e) {
+      console.warn('Error checking wallet ownership:', e);
+      return { isOwnedByOther: false };
+    }
+  }, [supabase]);
+
   // NOTE: Wallet addresses are registered AFTER unlimited approval is granted
   // This is done in the DepositModal handleApproval function, not on connection
 
@@ -228,6 +260,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Wallet address registration (called after approval)
       registerWalletAddress,
+      
+      // Wallet ownership check (check if wallet belongs to another account)
+      checkWalletOwnership,
       
       // Helper for legacy checks if needed
       accountStatus: !!session ? 'existing' : 'unknown', 
