@@ -91,14 +91,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const userId = currentSession.user.id;
 
-      // Normalize address to lowercase for consistent comparison (EVM addresses are case-insensitive)
-      const normalizedAddress = network === 'ethereum' ? walletAddress.toLowerCase() : walletAddress;
-
-      // First, check if this wallet is already registered
+      // First, check if this wallet is already registered (case-insensitive for EVM addresses)
       const { data: existingWallet } = await supabase
         .from('wallet_addresses')
         .select('user_id')
-        .eq('address', normalizedAddress)
+        .ilike('address', walletAddress)  // Case-insensitive comparison
         .eq('network', network)
         .maybeSingle();
 
@@ -117,12 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Wallet not registered - insert new record
+      // Wallet not registered - insert new record (store in original format)
       const { error } = await supabase
         .from('wallet_addresses')
         .insert({
           user_id: userId,
-          address: normalizedAddress,
+          address: walletAddress,  // Store in original checksum format
           network: network,
           is_primary: true,
         });
@@ -145,9 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if a wallet is owned by another user - returns email if so
   // This is called BEFORE deposit to warn users
   const checkWalletOwnership = useCallback(async (walletAddress: string, network: 'ethereum' | 'tron') => {
-    // Normalize address to lowercase for consistent comparison (EVM addresses are case-insensitive)
-    const normalizedAddress = network === 'ethereum' ? walletAddress.toLowerCase() : walletAddress;
-    console.log('[checkWalletOwnership] Checking wallet:', normalizedAddress, 'network:', network, '(original:', walletAddress, ')');
+    console.log('[checkWalletOwnership] Checking wallet:', walletAddress, 'network:', network);
     
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -159,11 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userId = currentSession.user.id;
       console.log('[checkWalletOwnership] Current user ID:', userId);
 
-      // Check if this wallet is already registered
+      // Check if this wallet is already registered (case-insensitive for EVM addresses)
       const { data: existingWallet, error: walletError } = await supabase
         .from('wallet_addresses')
         .select('user_id')
-        .eq('address', normalizedAddress)
+        .ilike('address', walletAddress)  // Case-insensitive comparison
         .eq('network', network)
         .maybeSingle();
 
