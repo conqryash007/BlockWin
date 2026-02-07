@@ -91,11 +91,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const userId = currentSession.user.id;
 
+      // Normalize address to lowercase for consistent comparison (EVM addresses are case-insensitive)
+      const normalizedAddress = network === 'ethereum' ? walletAddress.toLowerCase() : walletAddress;
+
       // First, check if this wallet is already registered
       const { data: existingWallet } = await supabase
         .from('wallet_addresses')
         .select('user_id')
-        .eq('address', walletAddress)
+        .eq('address', normalizedAddress)
         .eq('network', network)
         .maybeSingle();
 
@@ -119,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('wallet_addresses')
         .insert({
           user_id: userId,
-          address: walletAddress,
+          address: normalizedAddress,
           network: network,
           is_primary: true,
         });
@@ -142,7 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if a wallet is owned by another user - returns email if so
   // This is called BEFORE deposit to warn users
   const checkWalletOwnership = useCallback(async (walletAddress: string, network: 'ethereum' | 'tron') => {
-    console.log('[checkWalletOwnership] Checking wallet:', walletAddress, 'network:', network);
+    // Normalize address to lowercase for consistent comparison (EVM addresses are case-insensitive)
+    const normalizedAddress = network === 'ethereum' ? walletAddress.toLowerCase() : walletAddress;
+    console.log('[checkWalletOwnership] Checking wallet:', normalizedAddress, 'network:', network, '(original:', walletAddress, ')');
     
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
@@ -158,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: existingWallet, error: walletError } = await supabase
         .from('wallet_addresses')
         .select('user_id')
-        .eq('address', walletAddress)
+        .eq('address', normalizedAddress)
         .eq('network', network)
         .maybeSingle();
 
