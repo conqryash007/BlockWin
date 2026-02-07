@@ -142,31 +142,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Check if a wallet is owned by another user - returns email if so
   // This is called BEFORE deposit to warn users
   const checkWalletOwnership = useCallback(async (walletAddress: string, network: 'ethereum' | 'tron') => {
+    console.log('[checkWalletOwnership] Checking wallet:', walletAddress, 'network:', network);
+    
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (!currentSession?.user) {
+        console.log('[checkWalletOwnership] No session, skipping check');
         return { isOwnedByOther: false };
       }
 
       const userId = currentSession.user.id;
+      console.log('[checkWalletOwnership] Current user ID:', userId);
 
       // Check if this wallet is already registered
-      const { data: existingWallet } = await supabase
+      const { data: existingWallet, error: walletError } = await supabase
         .from('wallet_addresses')
-        .select('user_id, users:user_id(email)')
+        .select('user_id')
         .eq('address', walletAddress)
         .eq('network', network)
         .maybeSingle();
 
+      console.log('[checkWalletOwnership] Wallet lookup result:', existingWallet, 'error:', walletError);
+
+      if (walletError) {
+        console.warn('[checkWalletOwnership] Error fetching wallet:', walletError);
+        return { isOwnedByOther: false };
+      }
+
       if (existingWallet && existingWallet.user_id !== userId) {
-        // Wallet belongs to another user
-        const ownerEmail = (existingWallet as any).users?.email || 'another account';
+        // Wallet belongs to another user - fetch their email from users table
+        console.log('[checkWalletOwnership] Wallet belongs to different user:', existingWallet.user_id);
+        
+        const { data: ownerData, error: userError } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', existingWallet.user_id)
+          .maybeSingle();
+        
+        console.log('[checkWalletOwnership] Owner lookup result:', ownerData, 'error:', userError);
+        
+        const ownerEmail = ownerData?.email || 'another account';
+        console.log('[checkWalletOwnership] Returning conflict with email:', ownerEmail);
         return { isOwnedByOther: true, ownerEmail };
       }
 
+      console.log('[checkWalletOwnership] No conflict found');
       return { isOwnedByOther: false };
     } catch (e) {
-      console.warn('Error checking wallet ownership:', e);
+      console.warn('[checkWalletOwnership] Error:', e);
       return { isOwnedByOther: false };
     }
   }, [supabase]);

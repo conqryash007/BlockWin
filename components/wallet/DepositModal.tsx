@@ -209,13 +209,18 @@ export function DepositModal() {
   // Check wallet ownership when entering Amount step (step 3)
   useEffect(() => {
     const checkOwnership = async () => {
+      console.log('[DepositModal] Ownership check triggered. Step:', step, 'Address:', activeAddress, 'Network:', selectedNetwork);
+      
       if (step === 3 && activeAddress && selectedNetwork) {
+        console.log('[DepositModal] Conditions met, starting wallet check...');
         setIsCheckingWallet(true);
         setWalletConflict(null);
         
         const result = await checkWalletOwnership(activeAddress, selectedNetwork);
+        console.log('[DepositModal] Wallet check result:', result);
         
         if (result.isOwnedByOther && result.ownerEmail) {
+          console.log('[DepositModal] Setting wallet conflict with email:', result.ownerEmail);
           setWalletConflict({ email: result.ownerEmail });
         }
         setIsCheckingWallet(false);
