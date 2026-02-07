@@ -211,18 +211,30 @@ export function DepositModal() {
     const checkOwnership = async () => {
       console.log('[DepositModal] Ownership check triggered. Step:', step, 'Address:', activeAddress, 'Network:', selectedNetwork);
       
+      // Only check when on step 3 with a connected wallet
       if (step === 3 && activeAddress && selectedNetwork) {
         console.log('[DepositModal] Conditions met, starting wallet check...');
+        toast.info(`Checking wallet ${activeAddress.slice(0, 8)}...`);
+        
         setIsCheckingWallet(true);
         setWalletConflict(null);
         
-        const result = await checkWalletOwnership(activeAddress, selectedNetwork);
-        console.log('[DepositModal] Wallet check result:', result);
-        
-        if (result.isOwnedByOther && result.ownerEmail) {
-          console.log('[DepositModal] Setting wallet conflict with email:', result.ownerEmail);
-          setWalletConflict({ email: result.ownerEmail });
+        try {
+          const result = await checkWalletOwnership(activeAddress, selectedNetwork);
+          console.log('[DepositModal] Wallet check result:', result);
+          
+          if (result.isOwnedByOther && result.ownerEmail) {
+            console.log('[DepositModal] Setting wallet conflict with email:', result.ownerEmail);
+            toast.error(`Wallet already linked to: ${result.ownerEmail}`);
+            setWalletConflict({ email: result.ownerEmail });
+          } else {
+            toast.success('Wallet check passed');
+          }
+        } catch (err) {
+          console.error('[DepositModal] Error during wallet check:', err);
+          toast.error('Error checking wallet');
         }
+        
         setIsCheckingWallet(false);
       }
     };
