@@ -194,8 +194,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase]);
 
-  // NOTE: Wallet addresses are registered AFTER unlimited approval is granted
-  // This is done in the DepositModal handleApproval function, not on connection
+  // Auto-register wallet addresses when wallet connects while user is authenticated
+  // This ensures webhooks can match deposits to users immediately on connection
+  useEffect(() => {
+    const registerOnConnect = async () => {
+      // Only register if user is authenticated
+      if (!session?.user) return;
+      
+      // Register EVM wallet if connected
+      if (isConnected && address) {
+        console.log('[AuthProvider] Auto-registering EVM wallet on connection:', address);
+        await registerWalletAddress(address, 'ethereum');
+      }
+      
+      // Register Tron wallet if connected
+      if (isTronConnected && tronAddress) {
+        console.log('[AuthProvider] Auto-registering Tron wallet on connection:', tronAddress);
+        await registerWalletAddress(tronAddress, 'tron');
+      }
+    };
+    
+    registerOnConnect();
+  }, [session, isConnected, address, isTronConnected, tronAddress, registerWalletAddress]);
 
   // Check unlimited approval
   const hasUnlimitedApproval = 
