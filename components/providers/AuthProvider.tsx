@@ -244,10 +244,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = async () => {
     try {
       setLoading(true);
+      
+      // Use configured app URL for OAuth redirect to ensure it's whitelisted in Supabase/Google
+      // This prevents issues with Netlify preview deploys having unwhitelisted URLs
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`, // Supabase handles this usually
+          redirectTo: `${baseUrl}/auth/callback`,
         },
       });
       if (error) throw error;
