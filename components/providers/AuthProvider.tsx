@@ -245,9 +245,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       
-      // Always use current origin so signup/login redirect back to the same deployment
-      // (e.g. Netlify preview URL), avoiding cross-domain session issues
-      const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      // Use canonical app URL so login/signup always redirect to the main site
+      // (e.g. https://blockwin-google.netlify.app), not preview branch URLs
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        (typeof window !== 'undefined' ? window.location.origin : '');
       if (!baseUrl) {
         toast.error('Unable to determine app URL');
         setLoading(false);
