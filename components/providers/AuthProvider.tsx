@@ -244,17 +244,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = async () => {
     try {
       setLoading(true);
-      
-      // Use canonical app URL so login/signup always redirect to the main site
-      // (e.g. https://blockwin-google.netlify.app), not preview branch URLs
-      const baseUrl =
-        process.env.NEXT_PUBLIC_APP_URL ||
-        (typeof window !== 'undefined' ? window.location.origin : '');
-      if (!baseUrl) {
-        toast.error('Unable to determine app URL');
-        setLoading(false);
-        return;
-      }
+
+      // NEXT_PUBLIC_APP_URL must be set in Netlify env vars (all contexts) to
+      // https://blockwin-google.netlify.app so every build redirects to the main site.
+      // Falls back to window.location.origin for local development only.
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
