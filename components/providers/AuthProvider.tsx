@@ -245,10 +245,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       
-      // Use configured app URL for OAuth redirect to ensure it's whitelisted in Supabase/Google
-      // This prevents issues with Netlify preview deploys having unwhitelisted URLs
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      
+      // Always use current origin so signup/login redirect back to the same deployment
+      // (e.g. Netlify preview URL), avoiding cross-domain session issues
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+      if (!baseUrl) {
+        toast.error('Unable to determine app URL');
+        setLoading(false);
+        return;
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

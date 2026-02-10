@@ -35,77 +35,77 @@ export function WelcomeBonusPopup() {
 
   return (
     <Dialog open={showPopup} onOpenChange={(open) => !open && dismissPopup()}>
-      <DialogContent className="w-[90vw] h-[80vh] max-w-[420px] max-h-[600px] p-0 overflow-y-auto bg-transparent border-0 shadow-none rounded-2xl" hideCloseButton>
+      <DialogContent className="w-[90vw] max-w-[420px] p-0 bg-transparent border-0 shadow-none rounded-2xl" hideCloseButton>
         {/* Main Card with Gradient Border */}
         <div className="relative rounded-2xl overflow-hidden">
           {/* Animated gradient border */}
           <div className="absolute inset-0 bg-gradient-to-r from-casino-brand via-emerald-400 to-casino-brand bg-[length:200%_100%] animate-gradient-x rounded-2xl" />
           
-          {/* Inner content */}
-          <div className="relative m-[2px] bg-[#0a0c0f] rounded-[14px] overflow-hidden">
+          {/* Inner content - scrollable when needed */}
+          <div className="relative m-[2px] bg-[#0a0c0f] rounded-[14px] overflow-hidden max-h-[85vh] overflow-y-auto">
             {/* Close button */}
             <button 
               onClick={dismissPopup}
-              className="absolute top-6 right-6 z-20 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+              className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
             >
               <X className="w-4 h-4 text-white/60" />
             </button>
 
             {/* Sparkle decorations */}
-            <div className="absolute top-6 left-8 text-casino-brand/40 animate-pulse">
+            <div className="absolute top-4 left-6 text-casino-brand/40 animate-pulse">
               <Sparkles className="w-5 h-5" />
             </div>
-            <div className="absolute top-12 right-16 text-emerald-400/30 animate-pulse delay-300">
+            <div className="absolute top-10 right-12 text-emerald-400/30 animate-pulse delay-300">
               <Sparkles className="w-4 h-4" />
             </div>
 
             {/* Header section with gradient background */}
-            <div className="relative px-8 pt-8 pb-6 bg-gradient-to-b from-casino-brand/10 to-transparent">
+            <div className="relative px-6 pt-6 pb-4 bg-gradient-to-b from-casino-brand/10 to-transparent">
               {/* Gift icon with glow */}
-              <div className="flex justify-center mb-4">
+              <div className="flex justify-center mb-3">
                 <div className="relative">
                   <div className="absolute inset-0 bg-casino-brand/30 blur-xl rounded-full scale-150" />
-                  <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-casino-brand to-emerald-500 flex items-center justify-center shadow-[0_0_40px_rgba(0,255,163,0.4)]">
-                    <Gift className="w-10 h-10 text-black" />
+                  <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-casino-brand to-emerald-500 flex items-center justify-center shadow-[0_0_40px_rgba(0,255,163,0.4)]">
+                    <Gift className="w-8 h-8 text-black" />
                   </div>
                 </div>
               </div>
 
               {/* Title */}
-              <h2 className="text-center text-2xl font-bold text-white mb-1">
+              <h2 className="text-center text-xl font-bold text-white mb-0.5">
                 Welcome Bonus!
               </h2>
-              <p className="text-center text-muted-foreground text-sm">
+              <p className="text-center text-muted-foreground text-xs">
                 Exclusive offer for new members
               </p>
             </div>
 
             {/* Bonus amount display */}
-            <div className="px-8 py-4">
-              <div className="relative rounded-xl bg-gradient-to-r from-casino-brand/10 via-emerald-500/10 to-casino-brand/10 border border-casino-brand/20 p-4">
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
+            <div className="px-6 py-3">
+              <div className="relative rounded-xl bg-gradient-to-r from-casino-brand/10 via-emerald-500/10 to-casino-brand/10 border border-casino-brand/20 p-3">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
                     ${bonusAmount}
                   </span>
-                  <span className="text-lg font-medium text-casino-brand/80">FREE</span>
+                  <span className="text-base font-medium text-casino-brand/80">FREE</span>
                 </div>
-                <p className="text-center text-xs text-muted-foreground mt-2">
+                <p className="text-center text-xs text-muted-foreground mt-1">
                   Credited instantly after your first deposit
                 </p>
               </div>
             </div>
 
             {/* Steps section */}
-            <div className="px-8 py-4">
-              <h3 className="text-sm font-semibold text-white/70 mb-3 uppercase tracking-wide">
+            <div className="px-6 py-3">
+              <h3 className="text-sm font-semibold text-white/70 mb-2 uppercase tracking-wide">
                 How to Claim
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {steps.map((step, index) => (
                   <div 
                     key={step.label}
                     className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg transition-all",
+                      "flex items-center gap-3 p-2.5 rounded-lg transition-all",
                       step.completed 
                         ? "bg-casino-brand/10 border border-casino-brand/30" 
                         : "bg-white/5 border border-white/5"
@@ -145,8 +145,8 @@ export function WelcomeBonusPopup() {
             </div>
 
             {/* Requirements/Terms */}
-            <div className="px-8 py-4 bg-white/[0.02]">
-              <div className="space-y-1.5 text-[11px] text-muted-foreground/70">
+            <div className="px-6 py-3 bg-white/[0.02]">
+              <div className="space-y-1 text-[11px] text-muted-foreground/70">
                 <p>• One-time offer for new accounts only</p>
                 <p>• Bonus credited automatically after first deposit</p>
                 <p>• Minimum deposit: Any amount</p>
@@ -155,7 +155,7 @@ export function WelcomeBonusPopup() {
             </div>
 
             {/* CTA Button */}
-            <div className="p-6 pt-2">
+            <div className="p-6 pt-2 pb-5">
               <Button 
                 onClick={() => {
                   dismissPopup();

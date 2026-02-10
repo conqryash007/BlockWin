@@ -29,11 +29,10 @@ export async function GET(request: Request) {
     )
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error && data.user) {
-      // Set origin for new users using SUBDOMAIN env variable
-      const subdomain = process.env.SUBDOMAIN
-      if (subdomain) {
-        try {
-          // Check if user exists in users table and needs origin set
+      // Set origin for new users using SUBDOMAIN env variable (never block redirect)
+      try {
+        const subdomain = process.env.SUBDOMAIN
+        if (subdomain) {
           const { data: existingUser, error: fetchError } = await supabaseAdmin
             .from('users')
             .select('id, origin')
@@ -43,7 +42,6 @@ export async function GET(request: Request) {
           if (fetchError) {
             console.error('Error fetching user:', fetchError)
           } else if (!existingUser) {
-            // User doesn't exist in public.users - create with origin
             const { error: insertError } = await supabaseAdmin
               .from('users')
               .insert({
@@ -52,7 +50,6 @@ export async function GET(request: Request) {
                 origin: subdomain,
               })
             if (insertError) {
-              // If insert fails due to conflict (trigger already created user), try update
               if (insertError.code === '23505') {
                 await supabaseAdmin
                   .from('users')
@@ -66,7 +63,6 @@ export async function GET(request: Request) {
               console.log(`New user ${data.user.id} created with origin: ${subdomain}`)
             }
           } else if (!existingUser.origin) {
-            // User exists but origin is not set - update it
             const { error: updateError } = await supabaseAdmin
               .from('users')
               .update({ origin: subdomain })
@@ -77,11 +73,12 @@ export async function GET(request: Request) {
               console.log(`User ${data.user.id} origin updated to: ${subdomain}`)
             }
           }
-        } catch (e) {
-          console.error('Error setting user origin:', e)
         }
+      } catch (e) {
+        console.error('Error setting user origin:', e)
+        // Continue to redirect so auth still succeeds
       }
-      
+
       return NextResponse.redirect(`${origin}${next}`)
     } else {
       console.error('Auth Callback Error:', error)
