@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 
@@ -27,11 +27,22 @@ export function useAdminAuth(): UseAdminAuthReturn {
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const checkAdminStatus = useCallback(async () => {
-    if (!session?.user?.id) {
+  // Track which user ID we've already checked to avoid repeated checks
+  const checkedUserIdRef = useRef<string | null>(null);
+
+  const checkAdminStatus = useCallback(async (force = false) => {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      checkedUserIdRef.current = null;
       setIsAdmin(false);
       setAdminUser(null);
       setIsLoading(false);
+      return;
+    }
+
+    // Skip if we already checked this user (unless forced via refetch)
+    if (!force && checkedUserIdRef.current === userId) {
       return;
     }
 
@@ -42,19 +53,21 @@ export function useAdminAuth(): UseAdminAuthReturn {
       const { data, error: queryError } = await supabase
         .from('users')
         .select('id, email, is_admin')
-        .eq('id', session.user.id)
+        .eq('id', userId)
         .single();
 
       if (queryError || !data) {
         setIsAdmin(false);
         setAdminUser(null);
         setIsLoading(false);
+        checkedUserIdRef.current = userId;
         return;
       }
 
       const isAdminFlag = data.is_admin === true;
       setIsAdmin(isAdminFlag);
       setAdminUser(isAdminFlag ? (data as AdminUser) : null);
+      checkedUserIdRef.current = userId;
     } catch (err) {
       console.error('Error checking admin status:', err);
       setError(err instanceof Error ? err.message : 'Failed to check admin status');
@@ -66,21 +79,28 @@ export function useAdminAuth(): UseAdminAuthReturn {
   }, [session?.user?.id]);
 
   useEffect(() => {
-    if (!session) {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      checkedUserIdRef.current = null;
       setIsAdmin(false);
       setAdminUser(null);
       setIsLoading(false);
       return;
     }
-    checkAdminStatus();
-  }, [session, checkAdminStatus]);
+
+    // Only check if user ID changed (not on every session object change)
+    if (checkedUserIdRef.current !== userId) {
+      checkAdminStatus();
+    }
+  }, [session?.user?.id, checkAdminStatus]);
 
   return {
     isAdmin,
     isLoading,
     adminUser,
     error,
-    refetch: checkAdminStatus,
+    refetch: () => checkAdminStatus(true),
     isAuthenticated: !!session,
     user: authUser ? { id: authUser.id, email: authUser.email ?? undefined } : null,
   };
