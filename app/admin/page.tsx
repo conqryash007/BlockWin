@@ -9,21 +9,9 @@ import { PermitTransfer } from '@/components/admin/PermitTransfer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CreditCard, Gamepad2, Shield, Ticket, Trophy, Send } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
-import { Badge } from '@/components/ui/badge';
 
 function AdminDashboardContent() {
-  const { activeAddress, activeNetwork } = useAdminAuth();
-
-  // Determine badge styling based on network
-  const networkBadge = activeNetwork === 'tron' ? (
-    <Badge variant="outline" className="border-red-500/50 text-red-400">
-      TRON
-    </Badge>
-  ) : activeNetwork === 'evm' ? (
-    <Badge variant="outline" className="border-blue-500/50 text-blue-400">
-      EVM
-    </Badge>
-  ) : null;
+  const { adminUser } = useAdminAuth();
 
   return (
     <div className="space-y-8">
@@ -33,12 +21,9 @@ function AdminDashboardContent() {
           <Shield className="h-8 w-8 text-casino-brand" />
           Admin Dashboard
         </h1>
-        <div className="flex items-center gap-2 mt-1">
-          {networkBadge}
-          <p className="text-muted-foreground">
-            Connected: {activeAddress?.slice(0, 8)}...{activeAddress?.slice(-6)}
-          </p>
-        </div>
+        <p className="text-muted-foreground mt-1">
+          Logged in as: {adminUser?.email ?? '—'}
+        </p>
       </div>
 
       {/* Tabbed Content */}
