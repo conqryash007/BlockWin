@@ -265,6 +265,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         provider: 'google',
         options: {
           redirectTo: `${baseUrl}/auth/callback`,
+          queryParams: {
+            prompt: 'select_account',  // Always show Google account picker after logout
+          },
         },
       });
       if (error) throw error;
@@ -278,7 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
      try {
-         await supabase.auth.signOut();
+         await supabase.auth.signOut({ scope: 'global' });
          setSession(null);
          setUser(null);
          toast.success('Logged out');
