@@ -114,25 +114,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Wallet not registered - insert new record (store in original format)
+      // Wallet not registered - upsert record (store in original format)
+      // Using upsert to handle race conditions and RLS edge cases gracefully
       const { error } = await supabase
         .from('wallet_addresses')
-        .insert({
+        .upsert({
           user_id: userId,
           address: walletAddress,  // Store in original checksum format
           network: network,
           is_primary: true,
+        }, {
+          onConflict: 'address,network',
+          ignoreDuplicates: true,
         });
 
       if (error) {
-        // Handle race condition - might have been inserted by another process
-        if (error.message?.includes('duplicate') || error.code === '23505') {
-          console.log(`Wallet already registered (race condition): ${walletAddress}`);
-        } else {
-          console.warn('Failed to register wallet address:', error);
-        }
+        console.warn('Failed to register wallet address:', error);
       } else {
-        console.log(`Wallet address registered: ${walletAddress} (${network})`);
+        console.log(`Wallet address registered/confirmed: ${walletAddress} (${network})`);
       }
     } catch (e) {
       console.warn('Error registering wallet address:', e);
