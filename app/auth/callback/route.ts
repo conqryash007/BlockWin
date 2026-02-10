@@ -8,6 +8,12 @@ export async function GET(request: Request) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/'
 
+  // Always use the canonical app URL for redirects.
+  // On Netlify, `origin` from the request can resolve to a deploy-preview URL
+  // (e.g. abc123--site.netlify.app) instead of the custom domain, which breaks
+  // OAuth flows by sending users to preview URLs after Google login.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+
   if (code) {
     const cookieStore = cookies()
     const supabase = createServerClient(
@@ -79,12 +85,12 @@ export async function GET(request: Request) {
         // Continue to redirect so auth still succeeds
       }
 
-      return NextResponse.redirect(`${origin}${next}`)
+      return NextResponse.redirect(`${appUrl}${next}`)
     } else {
       console.error('Auth Callback Error:', error)
     }
   }
 
   // Return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
+  return NextResponse.redirect(`${appUrl}/auth/auth-code-error`)
 }

@@ -244,19 +244,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
 
-      // Determine canonical app URL for OAuth redirect:
-      // 1. NEXT_PUBLIC_APP_URL (set in netlify.toml for all builds)
-      // 2. Runtime: strip Netlify deploy/branch prefix (e.g. abc123--site.netlify.app -> site.netlify.app)
-      // 3. Fallback: current origin (local dev)
-      let baseUrl = process.env.NEXT_PUBLIC_APP_URL || '';
-      if (!baseUrl && typeof window !== 'undefined') {
-        const host = window.location.hostname;
-        if (host.includes('--') && host.endsWith('.netlify.app')) {
-          // Netlify deploy/branch preview URL -> derive main site URL
-          baseUrl = `https://${host.split('--').slice(1).join('--')}`;
-        } else {
-          baseUrl = window.location.origin;
-        }
+      // Always use the canonical production URL for OAuth redirects.
+      // NEVER derive a URL from the current hostname — Netlify deploy-preview
+      // and branch-deploy hostnames (e.g. abc123--site.netlify.app) leak into
+      // the redirectTo and Supabase happily redirects there if it's in the
+      // allowed list, breaking the flow for users.
+      // Fallback to window.location.origin ONLY for localhost (dev).
+      const PRODUCTION_URL = 'https://blockwin.space';
+      let baseUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_URL;
+
+      // Allow localhost override for local development only
+      if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+        baseUrl = window.location.origin;
       }
       console.log('[Auth] OAuth redirectTo baseUrl:', baseUrl, '| NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL || '(not set)');
 
