@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  NEXT_PUBLIC_APP_URL = "https://blockwin-google.netlify.app"
 
 # Next.js plugin for Netlify - handles SSR and API routes
 [[plugins]]

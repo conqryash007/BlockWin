@@ -245,10 +245,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
 
-      // NEXT_PUBLIC_APP_URL must be set in Netlify env vars (all contexts) to
-      // https://blockwin-google.netlify.app so every build redirects to the main site.
-      // Falls back to window.location.origin for local development only.
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      // Determine canonical app URL for OAuth redirect:
+      // 1. NEXT_PUBLIC_APP_URL (set in netlify.toml for all builds)
+      // 2. Runtime: strip Netlify deploy/branch prefix (e.g. abc123--site.netlify.app -> site.netlify.app)
+      // 3. Fallback: current origin (local dev)
+      let baseUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+      if (!baseUrl && typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        if (host.includes('--') && host.endsWith('.netlify.app')) {
+          // Netlify deploy/branch preview URL -> derive main site URL
+          baseUrl = `https://${host.split('--').slice(1).join('--')}`;
+        } else {
+          baseUrl = window.location.origin;
+        }
+      }
+      console.log('[Auth] OAuth redirectTo baseUrl:', baseUrl, '| NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL || '(not set)');
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
