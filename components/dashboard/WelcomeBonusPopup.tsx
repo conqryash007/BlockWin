@@ -35,7 +35,7 @@ export function WelcomeBonusPopup() {
 
   return (
     <Dialog open={showPopup} onOpenChange={(open) => !open && dismissPopup()}>
-      <DialogContent className="w-[calc(100vw-32px)] max-w-md max-h-[calc(100vh-32px)] p-0 overflow-y-auto bg-transparent border-0 shadow-none rounded-2xl" hideCloseButton>
+      <DialogContent className="w-[90vw] h-[80vh] max-w-[420px] max-h-[600px] p-0 overflow-y-auto bg-transparent border-0 shadow-none rounded-2xl" hideCloseButton>
         {/* Main Card with Gradient Border */}
         <div className="relative rounded-2xl overflow-hidden">
           {/* Animated gradient border */}
