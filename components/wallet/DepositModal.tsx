@@ -698,9 +698,9 @@ export function DepositModal() {
             <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
               <CheckCircle2 className="w-10 h-10 text-emerald-500" />
             </div>
-            <h3 className="text-xl font-bold text-emerald-400">Deposit Successful!</h3>
+            <h3 className="text-xl font-bold text-emerald-400">Deposit Submitted!</h3>
             <p className="text-muted-foreground mt-2 text-center">
-              Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been credited.
+              Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been submitted.
               {bonusCredited.credited && (
                 <>
                   <br />
@@ -710,6 +710,19 @@ export function DepositModal() {
                 </>
               )}
             </p>
+
+            {/* EVM: Balance update notice */}
+            {selectedNetwork === 'ethereum' && (
+              <div className="mt-4 w-full p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <AlertCircle className="w-5 h-5 text-yellow-500" />
+                  <span className="text-sm font-bold text-yellow-400">Pending Confirmation</span>
+                </div>
+                <p className="text-sm text-yellow-200/80">
+                  Your balance will be updated once the transaction is confirmed on the blockchain. This usually takes a few minutes.
+                </p>
+              </div>
+            )}
             
             {/* Welcome Bonus Display */}
             {bonusCredited.credited && (
