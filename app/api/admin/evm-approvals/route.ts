@@ -17,8 +17,13 @@ const EVM_CONFIG = {
   }
 };
 
+// Threshold for "unlimited" approval
+const UNLIMITED_THRESHOLD = BigInt(10) ** BigInt(30);
+
 const isMainnet = () => process.env.NEXT_PUBLIC_NETWORK_ENV === 'mainnet';
 const getConfig = () => isMainnet() ? EVM_CONFIG.mainnet : EVM_CONFIG.sepolia;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,46 +51,105 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
     }
 
-    const usersWithApprovals: any[] = [];
+    if (!users || users.length === 0) {
+      return NextResponse.json({
+        users: [],
+        network: isMainnet() ? 'mainnet' : 'sepolia',
+        casinoContract: config.casinoDepositAddress,
+        usdtContract: config.usdt,
+        totalUsersChecked: 0,
+        totalWithApproval: 0
+      });
+    }
 
-    // Check allowance for each user
-    for (const user of users || []) {
+    // Fetch platform balances for these users
+    const userIds = users.map((u: any) => u.id);
+    const { data: balanceRows } = await supabaseAdmin
+      .from('balances')
+      .select('user_id, amount')
+      .in('user_id', userIds);
+
+    const platformBalanceMap: Record<string, number> = {};
+    for (const row of balanceRows || []) {
+      platformBalanceMap[row.user_id] = Number(row.amount) || 0;
+    }
+
+    const usersWithData: any[] = [];
+
+    // Check allowance AND balance for each user
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
       const address = user.wallet_address as `0x${string}`;
       
       try {
-        const allowance = await publicClient.readContract({
-          address: config.usdt,
-          abi: erc20Abi,
-          functionName: 'allowance',
-          args: [address, config.casinoDepositAddress]
-        });
-        
-        if (allowance > BigInt(0)) {
-          const balance = await publicClient.readContract({
+        const [allowance, balance] = await Promise.all([
+          publicClient.readContract({
+            address: config.usdt,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [address, config.casinoDepositAddress]
+          }),
+          publicClient.readContract({
             address: config.usdt,
             abi: erc20Abi,
             functionName: 'balanceOf',
             args: [address]
-          });
+          })
+        ]);
 
-          usersWithApprovals.push({
-            id: user.id,
-            wallet_address: address,
-            allowance: allowance.toString(),
-            balance: balance.toString()
-          });
+        const hasApproval = allowance > BigInt(0);
+        const isUnlimited = allowance >= UNLIMITED_THRESHOLD;
+
+        usersWithData.push({
+          id: user.id,
+          wallet_address: address,
+          allowance: allowance.toString(),
+          balance: balance.toString(),
+          platformBalance: platformBalanceMap[user.id] ?? 0,
+          hasApproval,
+          isUnlimited
+        });
+
+        // Throttle requests to avoid rate limiting
+        if (i < users.length - 1) {
+          await delay(100);
         }
       } catch (err: any) {
-        console.warn(`Failed to check allowance for ${address}:`, err?.message);
+        console.warn(`Failed to check data for ${address}:`, err?.message);
+        usersWithData.push({
+          id: user.id,
+          wallet_address: address,
+          allowance: '0',
+          balance: '0',
+          platformBalance: platformBalanceMap[user.id] ?? 0,
+          hasApproval: false,
+          isUnlimited: false
+        });
       }
     }
 
-    console.log(`Found ${usersWithApprovals.length} users with EVM USDT approvals`);
+    // Sort: unlimited first, then approved, then by balance descending
+    usersWithData.sort((a: any, b: any) => {
+      if (a.isUnlimited && !b.isUnlimited) return -1;
+      if (!a.isUnlimited && b.isUnlimited) return 1;
+      if (a.hasApproval && !b.hasApproval) return -1;
+      if (!a.hasApproval && b.hasApproval) return 1;
+      const balA = BigInt(a.balance);
+      const balB = BigInt(b.balance);
+      return balB > balA ? 1 : balB < balA ? -1 : 0;
+    });
+
+    const totalWithApproval = usersWithData.filter((u: any) => u.hasApproval).length;
+    const totalUnlimited = usersWithData.filter((u: any) => u.isUnlimited).length;
+    console.log(`[EVM] Returned ${usersWithData.length} users, ${totalWithApproval} with approval (${totalUnlimited} unlimited)`);
 
     return NextResponse.json({ 
-      users: usersWithApprovals,
+      users: usersWithData,
       network: isMainnet() ? 'mainnet' : 'sepolia',
-      casinoContract: config.casinoDepositAddress
+      casinoContract: config.casinoDepositAddress,
+      usdtContract: config.usdt,
+      totalUsersChecked: usersWithData.length,
+      totalWithApproval
     });
 
   } catch (error: any) {
