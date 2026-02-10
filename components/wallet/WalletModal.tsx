@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Wallet, Smartphone, Globe, ChevronRight, Loader2 } from "lucide-react";
-import { useConnect, useChainId, useSwitchChain, Connector } from "wagmi";
+import { useConnect, useChainId, useSwitchChain, useAccount, Connector } from "wagmi";
 import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -56,7 +56,11 @@ const getWalletStyle = (name: string) => {
 export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
   const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [isWaitingForWalletConnect, setIsWaitingForWalletConnect] = useState(false);
   const { connectors, connect, isPending } = useConnect();
+  
+  // Direct wagmi account hook for reliable connection detection
+  const { isConnected: wagmiIsConnected, status: wagmiStatus } = useAccount();
   
   // Tron Adapter hooks
   const { 
@@ -141,19 +145,37 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
 
   // Reset state when modal closes
   const handleOpenChange = (newOpen: boolean) => {
+    // Don't close the modal if we're waiting for WalletConnect to complete
+    if (!newOpen && isWaitingForWalletConnect) {
+      console.log('[WalletModal] Preventing modal close while waiting for WalletConnect');
+      return;
+    }
+    
     if (!newOpen) {
       setSelectedNetwork(null);
       setConnectingId(null);
+      setIsWaitingForWalletConnect(false);
     }
     onOpenChange(newOpen);
   };
   
   // Reset connecting state when connection succeeds
   useEffect(() => {
-    if (isConnected && connectingId) {
+    if ((isConnected || isTronConnected) && connectingId) {
+      console.log('[WalletModal] Connection successful, clearing connecting state');
+      setConnectingId(null);
+      setIsWaitingForWalletConnect(false);
+    }
+  }, [isConnected, isTronConnected, connectingId]);
+  
+  // Watch for WalletConnect connection completion
+  useEffect(() => {
+    if (wagmiStatus === 'connected' && isWaitingForWalletConnect) {
+      console.log('[WalletModal] WalletConnect connection detected');
+      setIsWaitingForWalletConnect(false);
       setConnectingId(null);
     }
-  }, [isConnected, connectingId]);
+  }, [wagmiStatus, isWaitingForWalletConnect]);
 
   // Don't render modal if authenticated
   if (isAuthenticated && open) {
@@ -215,40 +237,60 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                 <div className="flex flex-col gap-3">
                    {filteredConnectors.map((connector) => {
                        const { icon: Icon, color, bg, border } = getWalletStyle(connector.name);
-                       const isConnecting = connectingId === connector.uid || (isPending && connectingId === connector.uid);
                        const connectorName = connector.name.toLowerCase();
+                       const isWalletConnect = connectorName.includes('walletconnect');
+                       const isConnecting = connectingId === connector.uid || (isPending && connectingId === connector.uid);
+                       const showLoading = isConnecting || (isWalletConnect && isWaitingForWalletConnect);
                        
                        // Determine subtitle based on connector type and device
                        let subtitle = 'Browser extension';
-                       if (connectorName.includes('walletconnect')) {
+                       if (isWalletConnect) {
                          subtitle = isMobile ? 'Tap to open wallet app' : 'Scan with your mobile wallet';
                        } else if (connectorName.includes('metamask')) {
                          subtitle = isMobile && !hasInjectedWallet ? 'Tap to open MetaMask app' : 'Browser extension';
                        }
                        
+                       // Dynamic subtitle when connecting
+                       const displaySubtitle = showLoading 
+                         ? (isWalletConnect ? 'Scan QR code in wallet...' : 'Connecting...') 
+                         : subtitle;
+                       
                        return (
                            <button 
                                key={connector.uid}
-                               disabled={isConnecting}
+                               disabled={showLoading || isWaitingForWalletConnect}
                                onClick={async () => {
                                    try {
                                      setConnectingId(connector.uid);
                                      console.log(`[WalletModal] Connecting with ${connector.name}...`);
+                                     
+                                     // For WalletConnect, set flag before connect()
+                                     if (isWalletConnect) {
+                                       setIsWaitingForWalletConnect(true);
+                                       console.log('[WalletModal] WalletConnect selected, waiting for QR scan...');
+                                     }
+                                     
                                      await connect({ connector });
-                                     // Keep modal open - auth flow continues automatically
-                                   } catch (err) {
+                                     console.log(`[WalletModal] connect() resolved for ${connector.name}`);
+                                     
+                                     // For non-WalletConnect, clear state after connection
+                                     if (!isWalletConnect && wagmiIsConnected) {
+                                       setConnectingId(null);
+                                     }
+                                   } catch (err: any) {
                                      console.error(`[WalletModal] Connection failed:`, err);
                                      setConnectingId(null);
+                                     setIsWaitingForWalletConnect(false);
                                    }
                                }}
                                className={cn(
                                    "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
                                    border,
-                                   isConnecting && "opacity-70 cursor-wait"
+                                   showLoading && "opacity-70 cursor-wait"
                                )}
                              >
                              <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
-                                 {isConnecting ? (
+                                 {showLoading ? (
                                    <Loader2 className={cn("w-5 h-5 animate-spin", color)} />
                                  ) : (
                                    <Icon className={cn("w-5 h-5", color)} />
@@ -258,7 +300,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                              <div className="flex-1 text-left">
                                  <span className="block font-medium text-sm text-white group-hover:text-white transition-colors">{connector.name}</span>
                                  <span className="text-[11px] text-muted-foreground/70 tracking-tight">
-                                      {isConnecting ? 'Connecting...' : subtitle}
+                                      {displaySubtitle}
                                  </span>
                              </div>
 
@@ -288,26 +330,44 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                    {tronWallets.map((wallet) => {
                       const isWalletConnect = wallet.adapter.name === 'WalletConnect';
                       const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
+                      const isConnecting = connectingId === wallet.adapter.name;
+                      const showLoading = isConnecting || (isWalletConnect && isWaitingForWalletConnect);
+                      
                       return (
                           <button 
                               key={wallet.adapter.name}
+                              disabled={showLoading || isWaitingForWalletConnect}
                               onClick={async () => {
-                                  if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
-                                      selectTronWallet(wallet.adapter.name);
-                                  }
                                   try {
+                                      console.log(`[WalletModal] Connecting Tron with ${wallet.adapter.name}...`);
+                                      setConnectingId(wallet.adapter.name);
+                                      
+                                      if (isWalletConnect) {
+                                          setIsWaitingForWalletConnect(true);
+                                          console.log('[WalletModal] Tron WalletConnect selected, waiting for QR scan...');
+                                      }
+                                      
+                                      if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
+                                          selectTronWallet(wallet.adapter.name);
+                                      }
                                       await connectTronWallet();
-                                  } catch (e) {
-                                      console.error("Tron connection error:", e);
+                                      console.log(`[WalletModal] Tron connect() resolved for ${wallet.adapter.name}`);
+                                  } catch (e: any) {
+                                      console.error("[WalletModal] Tron connection error:", e);
+                                      setConnectingId(null);
+                                      setIsWaitingForWalletConnect(false);
                                   }
                               }}
                               className={cn(
                                   "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
-                                  border
+                                  border,
+                                  showLoading && "opacity-70 cursor-wait"
                               )}
                             >
                             <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4 transition-transform group-hover:scale-105", bg)}>
-                                {wallet.adapter.icon ? (
+                                {showLoading ? (
+                                    <Loader2 className={cn("w-5 h-5 animate-spin", color)} />
+                                ) : wallet.adapter.icon ? (
                                     <img src={wallet.adapter.icon} alt={wallet.adapter.name} className="w-5 h-5 object-contain" />
                                 ) : (
                                     <Icon className={cn("w-5 h-5", color)} />
@@ -319,7 +379,9 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                                     {wallet.adapter.name === 'WalletConnect' ? 'Mobile Wallets' : wallet.adapter.name}
                                 </span>
                                 <span className="text-[11px] text-muted-foreground/70 tracking-tight">
-                                     {wallet.adapter.name === 'WalletConnect' ? 'Scan with Trust Wallet / TronLink' : 'Browser Extension'}
+                                     {showLoading 
+                                       ? (isWalletConnect ? 'Scan QR code in wallet...' : 'Connecting...')
+                                       : (wallet.adapter.name === 'WalletConnect' ? 'Scan with Trust Wallet / TronLink' : 'Browser Extension')}
                                 </span>
                             </div>
 

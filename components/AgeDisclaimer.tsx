@@ -11,19 +11,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/useAuth';
 
 export function AgeDisclaimer() {
   const [isMounted, setIsMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
     setIsMounted(true);
-    // Check if user has already accepted
+    // Skip if user is already authenticated (they verified on first visit)
+    if (isAuthenticated) {
+      setIsOpen(false);
+      return;
+    }
+
     const hasAccepted = localStorage.getItem('age_verified');
     if (!hasAccepted) {
       setIsOpen(true);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const handleAccept = () => {
     localStorage.setItem('age_verified', 'true');

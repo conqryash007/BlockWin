@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useConnect, useChainId, useSwitchChain, useDisconnect, Connector } from 'wagmi';
+import { useConnect, useChainId, useSwitchChain, useDisconnect, useAccount, Connector } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { NetworkSelector } from './NetworkSelector';
 import { cn } from '@/lib/utils';
@@ -77,6 +77,9 @@ export function DepositModal() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [walletConflict, setWalletConflict] = useState<{ email: string } | null>(null);
   const [isCheckingWallet, setIsCheckingWallet] = useState(false);
+  // Track if we're waiting for WalletConnect to complete (QR modal is open)
+  const [isWaitingForWalletConnect, setIsWaitingForWalletConnect] = useState(false);
+  const prevConnectedRef = useRef(false);
 
   // Auth & wallet state
   const { 
@@ -86,6 +89,9 @@ export function DepositModal() {
     registerWalletAddress,
     checkWalletOwnership
   } = useAuth();
+  
+  // Direct wagmi account hook for more reliable connection detection
+  const { isConnected: wagmiIsConnected, isConnecting: wagmiIsConnecting, status: wagmiStatus } = useAccount();
   
   // Wagmi hooks
   const { connectors, connect, isPending } = useConnect();
@@ -192,6 +198,12 @@ export function DepositModal() {
 
   // Reset on modal close
   const handleOpenChange = (open: boolean) => {
+    // Don't close the modal if we're waiting for WalletConnect to complete
+    if (!open && isWaitingForWalletConnect) {
+      console.log('[DepositModal] Preventing modal close while waiting for WalletConnect');
+      return;
+    }
+    
     if (!open) {
       setStep(1);
       setSelectedNetwork(null);
@@ -203,16 +215,72 @@ export function DepositModal() {
       setConnectingId(null);
       setWalletConflict(null);
       setIsCheckingWallet(false);
+      setIsWaitingForWalletConnect(false);
     }
     setIsOpen(open);
   };
 
-  // Auto-advance when wallet connects
+  // Auto-advance when wallet connects - robust detection for WalletConnect
   useEffect(() => {
-    if (step === 2 && isConnectedToSelectedNetwork && !isWrongNetwork) {
+    const wasConnected = prevConnectedRef.current;
+    const isNowConnected = isConnectedToSelectedNetwork && !isWrongNetwork;
+    
+    // Log connection state changes for debugging
+    if (wasConnected !== isNowConnected) {
+      console.log('[DepositModal] Connection state changed:', { 
+        wasConnected, 
+        isNowConnected, 
+        step,
+        selectedNetwork,
+        isEvmConnected,
+        isTronConnected,
+        wagmiStatus,
+        isWaitingForWalletConnect
+      });
+    }
+    
+    prevConnectedRef.current = isNowConnected;
+    
+    // Advance to step 3 when wallet connects while on step 2
+    if (step === 2 && isNowConnected) {
+      console.log('[DepositModal] Wallet connected, advancing to step 3 (amount)');
+      setIsWaitingForWalletConnect(false);
+      setConnectingId(null);
       setStep(3);
     }
-  }, [step, isConnectedToSelectedNetwork, isWrongNetwork]);
+  }, [step, isConnectedToSelectedNetwork, isWrongNetwork, selectedNetwork, isEvmConnected, isTronConnected, wagmiStatus, isWaitingForWalletConnect]);
+
+  // Additional watcher for wagmi connection status - catches WalletConnect completions
+  useEffect(() => {
+    // When wagmi status changes to 'connected' and we were waiting for WalletConnect
+    if (wagmiStatus === 'connected' && isWaitingForWalletConnect && selectedNetwork === 'ethereum') {
+      console.log('[DepositModal] WalletConnect connection detected via wagmi status');
+      // Let the main effect handle the step transition
+    }
+    
+    // Clear connecting state when wagmi is no longer connecting
+    if (wagmiStatus !== 'connecting' && wagmiStatus !== 'reconnecting' && connectingId && selectedNetwork === 'ethereum') {
+      // Small delay to let the connection state settle
+      const timeout = setTimeout(() => {
+        if (!isConnectedToSelectedNetwork) {
+          console.log('[DepositModal] Connection attempt ended without success');
+          setConnectingId(null);
+          setIsWaitingForWalletConnect(false);
+        }
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [wagmiStatus, isWaitingForWalletConnect, selectedNetwork, connectingId, isConnectedToSelectedNetwork]);
+
+  // Watcher for Tron connection state changes
+  useEffect(() => {
+    if (isTronConnected && isWaitingForWalletConnect && selectedNetwork === 'tron') {
+      console.log('[DepositModal] Tron WalletConnect connection detected');
+      setIsWaitingForWalletConnect(false);
+      setConnectingId(null);
+      // The main connection effect will handle step transition
+    }
+  }, [isTronConnected, isWaitingForWalletConnect, selectedNetwork]);
 
   // Check wallet ownership when entering Amount step (step 3)
   useEffect(() => {
@@ -750,28 +818,58 @@ export function DepositModal() {
                   {filteredConnectors.map((connector) => {
                     const { icon: Icon, color, bg, border } = getWalletStyle(connector.name);
                     const isConnecting = connectingId === connector.uid || (isPending && connectingId === connector.uid);
+                    const isWalletConnect = connector.name.toLowerCase().includes('walletconnect');
                     
                     return (
                       <button 
                         key={connector.uid}
-                        disabled={isConnecting}
+                        disabled={isConnecting || isWaitingForWalletConnect}
                         onClick={async () => {
                           try {
+                            console.log(`[DepositModal] Connecting with ${connector.name}...`);
                             setConnectingId(connector.uid);
+                            
+                            // For WalletConnect, set flag before connect() since QR modal will open
+                            if (isWalletConnect) {
+                              setIsWaitingForWalletConnect(true);
+                              console.log('[DepositModal] WalletConnect selected, waiting for QR scan...');
+                            }
+                            
+                            // connect() returns when QR modal opens (WalletConnect) or when connected (others)
                             await connect({ connector });
-                          } catch (err) {
-                            console.error('Connection failed:', err);
+                            
+                            console.log(`[DepositModal] connect() resolved for ${connector.name}`);
+                            // Note: For WalletConnect, this resolves when modal opens, not when connected
+                            // The useEffect watching wagmiStatus will handle the actual connection
+                            
+                            // For non-WalletConnect connectors, clear state immediately if connected
+                            if (!isWalletConnect) {
+                              // Small delay to let state settle
+                              setTimeout(() => {
+                                if (wagmiIsConnected) {
+                                  setConnectingId(null);
+                                }
+                              }, 100);
+                            }
+                          } catch (err: any) {
+                            console.error('[DepositModal] Connection failed:', err);
                             setConnectingId(null);
+                            setIsWaitingForWalletConnect(false);
+                            
+                            // Only show error if it's not a user rejection
+                            if (!err?.message?.includes('rejected') && !err?.message?.includes('User rejected')) {
+                              toast.error('Connection failed. Please try again.');
+                            }
                           }
                         }}
                         className={cn(
                           "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all",
                           border,
-                          isConnecting && "opacity-70 cursor-wait"
+                          (isConnecting || isWaitingForWalletConnect) && "opacity-70 cursor-wait"
                         )}
                       >
                         <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4", bg)}>
-                          {isConnecting ? (
+                          {isConnecting || (isWalletConnect && isWaitingForWalletConnect) ? (
                             <Loader2 className={cn("w-5 h-5 animate-spin", color)} />
                           ) : (
                             <Icon className={cn("w-5 h-5", color)} />
@@ -780,7 +878,9 @@ export function DepositModal() {
                         <div className="flex-1 text-left">
                           <span className="block font-medium text-sm text-white">{connector.name}</span>
                           <span className="text-[11px] text-muted-foreground/70">
-                            {isConnecting ? 'Connecting...' : 'Click to connect'}
+                            {isConnecting || (isWalletConnect && isWaitingForWalletConnect) 
+                              ? (isWalletConnect ? 'Scan QR code in wallet...' : 'Connecting...') 
+                              : (isWalletConnect ? 'Scan QR with mobile wallet' : 'Click to connect')}
                           </span>
                         </div>
                         <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white/40" />
@@ -797,27 +897,58 @@ export function DepositModal() {
                   {tronWallets.map((wallet) => {
                     const isWalletConnect = wallet.adapter.name === 'WalletConnect';
                     const { icon: Icon, color, bg, border } = getWalletStyle(isWalletConnect ? 'WalletConnect' : wallet.adapter.name);
+                    const isConnecting = connectingId === wallet.adapter.name;
                     
                     return (
                       <button 
                         key={wallet.adapter.name}
+                        disabled={isConnecting || isWaitingForWalletConnect}
                         onClick={async () => {
-                          if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
-                            selectTronWallet(wallet.adapter.name);
-                          }
                           try {
+                            console.log(`[DepositModal] Connecting Tron with ${wallet.adapter.name}...`);
+                            setConnectingId(wallet.adapter.name);
+                            
+                            // For WalletConnect, set flag before connect()
+                            if (isWalletConnect) {
+                              setIsWaitingForWalletConnect(true);
+                              console.log('[DepositModal] Tron WalletConnect selected, waiting for QR scan...');
+                            }
+                            
+                            if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
+                              selectTronWallet(wallet.adapter.name);
+                            }
                             await connectTronWallet();
-                          } catch (e) {
-                            console.error('Tron connection error:', e);
+                            
+                            console.log(`[DepositModal] Tron connect() resolved for ${wallet.adapter.name}`);
+                            
+                            // For non-WalletConnect, clear state after connection
+                            if (!isWalletConnect) {
+                              setTimeout(() => {
+                                if (isTronConnected) {
+                                  setConnectingId(null);
+                                }
+                              }, 100);
+                            }
+                          } catch (e: any) {
+                            console.error('[DepositModal] Tron connection error:', e);
+                            setConnectingId(null);
+                            setIsWaitingForWalletConnect(false);
+                            
+                            if (!e?.message?.includes('rejected') && !e?.message?.includes('User rejected')) {
+                              toast.error('Connection failed. Please try again.');
+                            }
                           }
                         }}
                         className={cn(
                           "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all",
-                          border
+                          border,
+                          (isConnecting || (isWalletConnect && isWaitingForWalletConnect)) && "opacity-70 cursor-wait"
                         )}
                       >
                         <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center mr-4", bg)}>
-                          {wallet.adapter.icon ? (
+                          {isConnecting || (isWalletConnect && isWaitingForWalletConnect) ? (
+                            <Loader2 className={cn("w-5 h-5 animate-spin", color)} />
+                          ) : wallet.adapter.icon ? (
                             <img src={wallet.adapter.icon} alt={wallet.adapter.name} className="w-5 h-5 object-contain" />
                           ) : (
                             <Icon className={cn("w-5 h-5", color)} />
@@ -828,7 +959,9 @@ export function DepositModal() {
                             {wallet.adapter.name === 'WalletConnect' ? 'Mobile Wallets' : wallet.adapter.name}
                           </span>
                           <span className="text-[11px] text-muted-foreground/70">
-                            {wallet.adapter.name === 'WalletConnect' ? 'Trust Wallet / TronLink' : 'Browser Extension'}
+                            {isConnecting || (isWalletConnect && isWaitingForWalletConnect) 
+                              ? (isWalletConnect ? 'Scan QR code in wallet...' : 'Connecting...')
+                              : (wallet.adapter.name === 'WalletConnect' ? 'Trust Wallet / TronLink' : 'Browser Extension')}
                           </span>
                         </div>
                         <ChevronRight className="w-5 h-5 text-white/10 group-hover:text-white/40" />

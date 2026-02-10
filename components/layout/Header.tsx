@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2 } from "lucide-react";
+import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2, Unplug } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAccount, useDisconnect } from "wagmi";
+import { useWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { LoginModal } from "@/components/auth/LoginModal";
 import { WalletModal } from "@/components/wallet/WalletModal";
 import { DepositModal } from "@/components/wallet/DepositModal";
@@ -33,7 +34,8 @@ export function Header() {
   
   // Real Wagmi Hooks (Keep for disconnect, but use useAuth for state)
   const { disconnect } = useDisconnect();
-  
+  const { disconnect: disconnectTron, connected: isTronConnected } = useWallet();
+
   // Platform balance from Supabase
   const { balance: platformBalance, isLoading: isBalanceLoading } = usePlatformBalance();
   const { 
@@ -196,6 +198,16 @@ export function Header() {
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       <span>View on Explorer</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={async () => {
+                        disconnect();
+                        if (isTronConnected) await disconnectTron();
+                        toast.success('Wallet disconnected');
+                      }}
+                    >
+                      <Unplug className="mr-2 h-4 w-4" />
+                      <span>Disconnect Wallet</span>
                     </DropdownMenuItem>
                   </>
                 )}
