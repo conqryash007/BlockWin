@@ -6,9 +6,10 @@ import {
   ArrowDownToLine, 
   ArrowUpFromLine, 
   Banknote, 
-  Bell 
+  Bell,
+  Coins
 } from "lucide-react";
-import { DepositModal } from "@/components/wallet/DepositModal";
+import { openDepositModal } from "@/lib/depositEvents";
 import { useAuth } from "@/hooks/useAuth";
 
 interface QuickActionsColumnProps {
@@ -29,12 +30,19 @@ export function QuickActionsColumn({ className }: QuickActionsColumnProps) {
       {/* Action Buttons */}
       <div className="grid grid-cols-2 gap-2">
         {isAuthenticated ? (
-            <DepositModal />
+            <Button 
+              onClick={() => openDepositModal()}
+              className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all"
+            >
+              <Coins className="w-4 h-4 mr-2" />
+              Deposit
+            </Button>
         ) : (
             <Button 
               disabled 
               className="w-full h-12 bg-white/5 text-muted-foreground font-bold border border-white/5 cursor-not-allowed opacity-50"
             >
+              <Coins className="w-4 h-4 mr-2" />
               Deposit
             </Button>
         )}

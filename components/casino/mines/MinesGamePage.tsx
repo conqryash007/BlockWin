@@ -20,8 +20,8 @@ export interface Tile {
 }
 
 export function MinesGamePage() {
-  // Use useAuth to support both EVM and Tron wallets
-  const { activeAddress: address, login } = useAuth();
+  // Use useAuth - isAuthenticated for balance, login for prompting
+  const { isAuthenticated, login } = useAuth();
   const supabase = createClient();
 
   // Wallet / Balance State
@@ -41,9 +41,9 @@ export function MinesGamePage() {
   const [lastProfitLoss, setLastProfitLoss] = useState<number | null>(null);
   const [houseEdge, setHouseEdge] = useState<number>(0);
 
-  // Fetch Balance
+  // Fetch Balance - based on Google auth, not wallet connection
   useEffect(() => {
-    if (!address) {
+    if (!isAuthenticated) {
        setBalance(0);
        return;
     }
@@ -55,7 +55,7 @@ export function MinesGamePage() {
         }
     };
     fetchBalance();
-  }, [address, supabase]);
+  }, [isAuthenticated, supabase]);
 
   // Create empty 25-tile grid
   function createEmptyGrid(): Tile[] {

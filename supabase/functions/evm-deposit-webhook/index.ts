@@ -13,6 +13,7 @@ const corsHeaders = {
 // event Deposit(address indexed user, address indexed token, uint256 amount, uint256 timestamp, bytes32 indexed depositId)
 // We calculate it dynamically or hardcode it to ensure correctness
 const DEPOSIT_EVENT_SIGNATURE = "Deposit(address,address,uint256,uint256,bytes32)";
+
 const DEPOSIT_TOPIC = ethers.id(DEPOSIT_EVENT_SIGNATURE);
 
 interface WebhookPayload {
@@ -222,6 +223,18 @@ Deno.serve(async (req: Request) => {
            }
       }
 
+      // 3b. Check Welcome Bonus Eligibility
+      const WELCOME_BONUS_AMOUNT = 10;
+      const { data: userData } = await supabaseAdmin
+        .from('users')
+        .select('welcome_bonus_status')
+        .eq('id', userId)
+        .single();
+      
+      const bonusStatus = userData?.welcome_bonus_status;
+      const bonusEligible = bonusStatus !== 'credited';
+      console.log(`User ${userId} bonus status: ${bonusStatus}, eligible: ${bonusEligible}`);
+
       // 4. Normalize Amount
       const amountBig = BigInt(amountStr);
       const normalizedAmount = Number(ethers.formatUnits(amountBig, decimals));
@@ -252,8 +265,11 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // 6. Update Balance
-       const { data: balanceRecord } = await supabaseAdmin
+      // 6. Update Balance (deposit + bonus if eligible)
+      const bonusAmount = bonusEligible ? WELCOME_BONUS_AMOUNT : 0;
+      const totalCredit = normalizedAmount + bonusAmount;
+      
+      const { data: balanceRecord } = await supabaseAdmin
         .from('balances')
         .select('amount')
         .eq('user_id', userId)
@@ -261,20 +277,51 @@ Deno.serve(async (req: Request) => {
 
       let newBalance = 0;
       if (balanceRecord) {
-        newBalance = Number(balanceRecord.amount) + normalizedAmount;
+        newBalance = Number(balanceRecord.amount) + totalCredit;
         await supabaseAdmin
           .from('balances')
           .update({ amount: newBalance, updated_at: new Date().toISOString() })
           .eq('user_id', userId);
       } else {
-        newBalance = normalizedAmount;
+        newBalance = totalCredit;
         await supabaseAdmin
           .from('balances')
           .insert({ user_id: userId, amount: newBalance });
       }
 
+      // 7. If bonus was credited, record it and update user status
+      if (bonusEligible) {
+        // Record bonus transaction
+        await supabaseAdmin
+          .from('transactions')
+          .insert({
+            user_id: userId,
+            type: 'bonus',
+            amount: WELCOME_BONUS_AMOUNT,
+            tx_hash: null,
+            metadata: {
+              type: 'welcome_bonus',
+              related_deposit_tx: txHash,
+              source: 'webhook'
+            },
+            game_type: 'wallet'
+          });
+        
+        // Update user status
+        await supabaseAdmin
+          .from('users')
+          .update({
+            first_deposit_at: new Date().toISOString(),
+            welcome_bonus_status: 'credited',
+            welcome_bonus_credited_at: new Date().toISOString()
+          })
+          .eq('id', userId);
+        
+        console.log(`Credited $${WELCOME_BONUS_AMOUNT} welcome bonus to user ${userId}`);
+      }
+
       processedCount++;
-      console.log(`Processed deposit ${txHash} for user ${userId}: ${normalizedAmount}`);
+      console.log(`Processed deposit ${txHash} for user ${userId}: deposit=${normalizedAmount}, bonus=${bonusAmount}, total=${totalCredit}`);
     }
 
     return new Response(

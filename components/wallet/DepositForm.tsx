@@ -23,6 +23,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 import { createClient } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { triggerBonusUpdate } from '@/lib/depositEvents';
 
 interface DepositFormProps {
   selectedNetwork: 'ethereum' | 'tron' | null;
@@ -44,6 +45,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [processLog, setProcessLog] = useState<string[]>([]);
   const [depositError, setDepositError] = useState<string | null>(null);
+  const [bonusCredited, setBonusCredited] = useState<{ credited: boolean; amount: number } | null>(null);
   const processLogRef = useRef<string[]>([]);
 
   const addLog = useCallback((msg: string) => {
@@ -68,6 +70,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     approveUnlimited,
     deposit, 
     depositSuccess,
+    depositHash,
   } = useDeposit();
   
   const {
@@ -102,25 +105,61 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   }, [selectedNetwork, refetchTronAllowance]);
 
   // Handle deposit success (for EVM deposits via wagmi's depositSuccess)
+  // Now also calls the deposit API to handle welcome bonus
   useEffect(() => {
-    if (depositSuccess && isProcessing) {
-      setIsProcessing(false);
-      setIsSuccess(true);
-      refetchBalance(); // Refresh on-chain token balance
-      
-      // Trigger platform balance refresh with delays to allow webhook processing
-      setTimeout(() => {
+    if (depositSuccess && isProcessing && selectedNetwork === 'ethereum') {
+      const notifyServerForEvm = async () => {
+        try {
+          const supabase = createClient();
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session?.access_token && amount && depositHash) {
+            const depositAmount = parseFloat(amount);
+            const txHash = depositHash;
+            
+            const res = await fetch('/api/wallet/deposit', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({
+                txHash: txHash,
+                amount: depositAmount,
+                tokenAddress: tokenAddress,
+                network: 'ethereum',
+              }),
+            });
+            const data = await res.json();
+            
+            if (res.ok && data?.success) {
+              triggerBalanceRefresh();
+              // Check if welcome bonus was credited
+              if (data.bonusCredited && data.bonusAmount) {
+                setBonusCredited({ credited: true, amount: data.bonusAmount });
+                triggerBonusUpdate();
+                toast.success(`$${data.bonusAmount} Welcome Bonus credited to your account!`, {
+                  duration: 5000,
+                  icon: '🎁',
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to notify server of EVM deposit:', err);
+        }
+        
+        setIsProcessing(false);
+        setIsSuccess(true);
+        refetchBalance();
         triggerBalanceRefresh();
-      }, 2000);
+        toast.success('Deposit successful!');
+        if (onSuccess) onSuccess();
+      };
       
-      setTimeout(() => {
-        triggerBalanceRefresh();
-      }, 5000);
-      
-      toast.success('Deposit successful!');
-      if (onSuccess) onSuccess();
+      notifyServerForEvm();
     }
-  }, [depositSuccess, isProcessing, refetchBalance, onSuccess]);
+  }, [depositSuccess, isProcessing, refetchBalance, onSuccess, selectedNetwork, amount, tokenAddress, depositHash]);
 
   // Determine if this is a first-time deposit for this token
   const isFirstTime = !hasUnlimitedApprovalLocal;
@@ -214,6 +253,15 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
               const data = await res.json();
               if (res.ok && data?.success) {
                 triggerBalanceRefresh();
+                // Check if welcome bonus was credited
+                if (data.bonusCredited && data.bonusAmount) {
+                  setBonusCredited({ credited: true, amount: data.bonusAmount });
+                  triggerBonusUpdate();
+                  toast.success(`$${data.bonusAmount} Welcome Bonus credited to your account!`, {
+                    duration: 5000,
+                    icon: '🎁',
+                  });
+                }
               } else if (!res.ok) {
                 console.warn('Tron deposit record failed:', data?.error);
               }
@@ -276,7 +324,24 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
         <p className="text-muted-foreground mt-2 text-center">
           Your deposit of <span className="text-white font-bold">{amount} {token.symbol}</span> has been submitted.
         </p>
-        <p className="text-sm text-muted-foreground mt-1">
+        
+        {/* Welcome Bonus Credited Message */}
+        {bonusCredited?.credited && (
+          <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-casino-brand/20 via-emerald-500/20 to-casino-brand/20 border border-casino-brand/30 text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <span className="text-2xl">🎁</span>
+              <span className="text-lg font-bold text-casino-brand">Welcome Bonus!</span>
+            </div>
+            <p className="text-white">
+              <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
+                ${bonusCredited.amount}
+              </span>
+              <span className="ml-2 text-muted-foreground">has been credited to your account!</span>
+            </p>
+          </div>
+        )}
+        
+        <p className="text-sm text-muted-foreground mt-3">
           Balance will update after blockchain confirmation.
         </p>
         {onClose && (

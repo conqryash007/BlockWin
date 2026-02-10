@@ -18,6 +18,7 @@ import {
 import { useAccount, useDisconnect } from "wagmi";
 import { LoginModal } from "@/components/auth/LoginModal";
 import { WalletModal } from "@/components/wallet/WalletModal";
+import { DepositModal } from "@/components/wallet/DepositModal";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePlatformBalance } from "@/hooks/usePlatformBalance";
@@ -229,6 +230,8 @@ export function Header() {
         onOpenChange={setIsWalletOpen} 
         isConnected={isConnected}
       />
+      
+      <DepositModal />
       
       <LoginModal 
         open={isLoginModalOpen} 

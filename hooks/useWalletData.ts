@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+// Use the SSR-compatible browser client that maintains session
+const supabase = createClient();
 
 export interface WalletStats {
   balance: number;
@@ -32,8 +30,8 @@ export interface Transaction {
 }
 
 export function useWalletData() {
-  // Use useAuth to support both EVM (wagmi) and Tron wallets
-  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
+  // Use isAuthenticated (Google login) instead of wallet connection
+  const { isAuthenticated } = useAuth();
   const [stats, setStats] = useState<WalletStats>({
     balance: 0,
     totalWagered: 0,
@@ -48,7 +46,7 @@ export function useWalletData() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchWalletData = useCallback(async () => {
-    if (!address || !isConnected) {
+    if (!isAuthenticated) {
       setStats({
         balance: 0,
         totalWagered: 0,
@@ -70,7 +68,7 @@ export function useWalletData() {
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       
       if (authError || !session) {
-        setError('Please connect your wallet and sign in');
+        setError('Please sign in to view your wallet data');
         setIsLoading(false);
         return;
       }
@@ -107,7 +105,7 @@ export function useWalletData() {
     } finally {
       setIsLoading(false);
     }
-  }, [address, isConnected]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     fetchWalletData();

@@ -14,6 +14,7 @@ import { cookieToInitialState } from 'wagmi';
 import { config } from '@/lib/config';
 import { TronProvider } from "@/components/providers/TronProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { WelcomeBonusPopup } from "@/components/dashboard/WelcomeBonusPopup";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -59,6 +60,7 @@ export default async function RootLayout({
                         <MobileBottomNav />
                         <BetslipDrawer />
                         <AgeDisclaimer />
+                        <WelcomeBonusPopup />
                     </div>
                 </div>
               </BetslipProvider>

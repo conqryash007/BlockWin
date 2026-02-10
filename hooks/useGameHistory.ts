@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+// Use the SSR-compatible browser client that maintains session
+const supabase = createClient();
 
 export interface GameSession {
   id: string;
@@ -39,8 +37,8 @@ interface UseGameHistoryOptions {
 
 export function useGameHistory(options: UseGameHistoryOptions = {}) {
   const { limit = 20, gameType } = options;
-  // Use useAuth to support both EVM and Tron wallets
-  const { activeAddress: address, isAnyConnected: isConnected } = useAuth();
+  // Use isAuthenticated (Google login) instead of wallet connection
+  const { isAuthenticated } = useAuth();
   const [games, setGames] = useState<GameSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +50,7 @@ export function useGameHistory(options: UseGameHistoryOptions = {}) {
   });
 
   const fetchGameHistory = useCallback(async (newOffset: number = 0, append: boolean = false) => {
-    if (!address || !isConnected) {
+    if (!isAuthenticated) {
       setGames([]);
       return;
     }
@@ -65,7 +63,7 @@ export function useGameHistory(options: UseGameHistoryOptions = {}) {
       const { data: { session }, error: authError } = await supabase.auth.getSession();
       
       if (authError || !session) {
-        setError('Please connect your wallet and sign in');
+        setError('Please sign in to view your game history');
         setIsLoading(false);
         return;
       }
@@ -109,7 +107,7 @@ export function useGameHistory(options: UseGameHistoryOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [address, isConnected, limit, gameType]);
+  }, [isAuthenticated, limit, gameType]);
 
   const loadMore = useCallback(() => {
     if (!isLoading && pagination.hasMore) {

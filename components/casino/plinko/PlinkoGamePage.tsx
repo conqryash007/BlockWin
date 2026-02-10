@@ -11,8 +11,8 @@ import { toast } from "sonner";
 import { triggerBalanceRefresh } from "@/hooks/usePlatformBalance";
 
 export function PlinkoGamePage() {
-  // Use useAuth to support both EVM and Tron wallets
-  const { activeAddress: address, login } = useAuth();
+  // Use useAuth - isAuthenticated for balance, login for prompting
+  const { isAuthenticated, login } = useAuth();
   const supabase = createClient();
 
   // Game State
@@ -32,9 +32,9 @@ export function PlinkoGamePage() {
   const [lastProfitLoss, setLastProfitLoss] = useState<number | null>(null);
   const [houseEdge, setHouseEdge] = useState<number>(0);
 
-  // Fetch Balance
+  // Fetch Balance - based on Google auth, not wallet connection
   useEffect(() => {
-    if (!address) {
+    if (!isAuthenticated) {
        setBalance(0);
        return;
     }
@@ -46,7 +46,7 @@ export function PlinkoGamePage() {
         }
     };
     fetchBalance();
-  }, [address, supabase]);
+  }, [isAuthenticated, supabase]);
 
   const handleDrop = async () => {
     const { data: { session } } = await supabase.auth.getSession();

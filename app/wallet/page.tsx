@@ -155,8 +155,8 @@ function GameHistoryRow({ game }: { game: GameSession }) {
 
 export default function WalletPage() {
   const { isConnected: isEvmConnected } = useAccount();
-  const { isAnyConnected } = useAuth();
-  const isConnected = isEvmConnected || isAnyConnected;
+  const { isAnyConnected, isAuthenticated } = useAuth();
+  const isWalletConnected = isEvmConnected || isAnyConnected;
   const { stats, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useWalletData();
   const { games, isLoading: gamesLoading, hasMore, total: totalGames, loadMore, refetch: refetchGames } = useGameHistory({ limit: 20 });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -193,7 +193,8 @@ export default function WalletPage() {
     );
   }
 
-  if (!isConnected) {
+  // Require Google authentication to view wallet stats
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-gradient-to-br from-[#1a1c24] to-[#0f1115] border-white/5">
@@ -201,15 +202,15 @@ export default function WalletPage() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-casino-brand/20 to-transparent flex items-center justify-center">
               <Wallet className="w-8 h-8 text-casino-brand" />
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">Connect Wallet</h2>
+            <h2 className="text-xl font-bold text-white mb-2">Sign In Required</h2>
             <p className="text-muted-foreground mb-6">
-              Connect your wallet to view your balance, earnings, and game history.
+              Please sign in to view your balance, earnings, and game history.
             </p>
             <Button
               onClick={() => setWalletModalOpen(true)}
               className="w-full bg-gradient-to-r from-casino-brand to-emerald-500 text-black font-bold hover:opacity-90"
             >
-              Connect Wallet
+              Sign In
             </Button>
           </CardContent>
         </Card>
@@ -390,7 +391,7 @@ export default function WalletPage() {
       <WalletModal
         open={walletModalOpen}
         onOpenChange={setWalletModalOpen}
-        isConnected={isConnected}
+        isConnected={isWalletConnected}
       />
     </div>
   );

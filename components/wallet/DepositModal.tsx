@@ -30,6 +30,8 @@ import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser } fro
 import { triggerBalanceRefresh } from '@/hooks/usePlatformBalance';
 import { createClient } from '@/lib/supabase';
 
+import { useOnOpenDepositModal, triggerBonusUpdate } from '@/lib/depositEvents';
+
 type DepositStep = 1 | 2 | 3 | 4 | 5;
 
 const STEP_LABELS = ['Network', 'Wallet', 'Amount', 'Approve', 'Deposit'];
@@ -71,6 +73,7 @@ export function DepositModal() {
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [bonusCredited, setBonusCredited] = useState<{ credited: boolean; amount: number }>({ credited: false, amount: 0 });
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [walletConflict, setWalletConflict] = useState<{ email: string } | null>(null);
   const [isCheckingWallet, setIsCheckingWallet] = useState(false);
@@ -112,6 +115,10 @@ export function DepositModal() {
     setIsMobile(isMobileDevice());
     setHasInjectedWallet(isInWalletBrowser());
   }, []);
+
+  // Listen for external requests to open the deposit modal (e.g., from WelcomeBonusPopup)
+  const handleOpenFromEvent = useCallback(() => setIsOpen(true), []);
+  useOnOpenDepositModal(handleOpenFromEvent);
 
   // Active tokens based on network
   const activeTokens = useMemo(() => {
@@ -192,6 +199,7 @@ export function DepositModal() {
       setAmount('');
       setIsProcessing(false);
       setIsSuccess(false);
+      setBonusCredited({ credited: false, amount: 0 });
       setConnectingId(null);
       setWalletConflict(null);
       setIsCheckingWallet(false);
@@ -463,10 +471,21 @@ export function DepositModal() {
                     network: 'tron',
                   }),
                 });
+                console.log('Tron deposit API response status:', res.status);
                 const data = await res.json();
+                console.log('Tron deposit API response data:', data);
                 if (res.ok && data?.success) {
                   triggerBalanceRefresh();
-                  toast.success('Deposit confirmed and credited!');
+                  
+                  // Check if welcome bonus was credited
+                  if (data.bonusCredited && data.bonusAmount) {
+                    setBonusCredited({ credited: true, amount: data.bonusAmount });
+                    toast.success(`🎉 Deposit confirmed! +$${data.bonusAmount} Welcome Bonus credited!`, {
+                      duration: 6000,
+                    });
+                  } else {
+                    toast.success('Deposit confirmed and credited!');
+                  }
                 } else {
                    // Fallback to webhook if API fails but TX was good
                    toast.success('Deposit confirmed! Balance updating shortly.');
@@ -493,26 +512,72 @@ export function DepositModal() {
             setTronTxStatus('');
             setIsProcessing(false);
             return;
+        }
+      }
+    } else if (depositResult) {
+        // EVM deposit - call our API to record deposit and credit welcome bonus if eligible
+        const evmTxHash = typeof depositResult === 'string' ? depositResult : (depositResult as any)?.hash;
+        
+        if (evmTxHash) {
+          console.log('EVM deposit submitted:', evmTxHash);
+          
+          try {
+            const supabase = createClient();
+            const { data: { session } } = await supabase.auth.getSession();
+            console.log('[DepositModal DEBUG] Session:', session ? 'Active' : 'Missing', 'User:', session?.user?.id);
+            
+            if (session?.access_token) {
+              console.log('[DepositModal DEBUG] Calling API /api/wallet/deposit with token');
+              const depositAmount = amount ? parseFloat(amount) : 0;
+              const res = await fetch('/api/wallet/deposit', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                  txHash: evmTxHash,
+                  amount: depositAmount,
+                  tokenAddress: tokenAddress,
+                  network: 'ethereum',
+                }),
+              });
+              
+              console.log('EVM deposit API response status:', res.status);
+              const data = await res.json();
+              console.log('EVM deposit API response data:', data);
+              
+              if (res.ok && data?.success) {
+                triggerBalanceRefresh();
+                refetchBalance();
+                
+                // Check if welcome bonus was credited
+                if (data.bonusCredited && data.bonusAmount) {
+                  setBonusCredited({ credited: true, amount: data.bonusAmount });
+                  toast.success(`🎉 Deposit successful! +$${data.bonusAmount} Welcome Bonus credited!`, {
+                    duration: 6000,
+                  });
+                } else {
+                  toast.success('Deposit confirmed and credited!');
+                }
+              } else {
+                // Fallback - tx was submitted but API had an issue
+                toast.success('Deposit submitted! Balance updating shortly.');
+                triggerBalanceRefresh();
+              }
+            } else {
+              toast.success('Deposit submitted! Balance updating shortly.');
+              triggerBalanceRefresh();
+            }
+          } catch (err) {
+            console.error('[DepositModal DEBUG] Deposit API call failed:', err);
+            toast.success('Deposit submitted! Balance updating shortly.');
+            triggerBalanceRefresh();
           }
         }
-      } else if (depositResult) {
-        // EVM or other networks
-        // The webhook will process the deposit and update the balance
-        // Wait a bit for the webhook to process, then trigger balance refresh
+        
+        triggerBonusUpdate();
         setIsSuccess(true);
-        refetchBalance(); // Refresh on-chain token balance
-        
-        // Trigger platform balance refresh with a delay to allow webhook processing
-        setTimeout(() => {
-          triggerBalanceRefresh();
-        }, 2000);
-        
-        // Also trigger again after a longer delay in case webhook is slow
-        setTimeout(() => {
-          triggerBalanceRefresh();
-        }, 5000);
-        
-        toast.success('Deposit successful!');
       }
     } catch (error: any) {
       console.error('Deposit error:', error);
@@ -559,12 +624,7 @@ export function DepositModal() {
   if (isSuccess) {
     return (
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-        <DialogTrigger asChild>
-          <Button className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all">
-            <Coins className="w-4 h-4 mr-2" />
-            Deposit
-          </Button>
-        </DialogTrigger>
+
         <DialogContent className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10">
           <div className="flex flex-col items-center justify-center py-8">
             <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
@@ -572,11 +632,34 @@ export function DepositModal() {
             </div>
             <h3 className="text-xl font-bold text-emerald-400">Deposit Successful!</h3>
             <p className="text-muted-foreground mt-2 text-center">
-              Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been submitted.
+              Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been credited.
+              {bonusCredited.credited && (
+                <>
+                  <br />
+                  <span className="text-emerald-400 font-bold block mt-1">
+                    + ${bonusCredited.amount} Welcome Bonus Applied!
+                  </span>
+                </>
+              )}
             </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Balance will update after blockchain confirmation.
-            </p>
+            
+            {/* Welcome Bonus Display */}
+            {bonusCredited.credited && (
+              <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-casino-brand/20 to-emerald-500/20 border border-casino-brand/40 w-full">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <span className="text-2xl">🎉</span>
+                  <h4 className="text-lg font-bold text-casino-brand">Welcome Bonus!</h4>
+                  <span className="text-2xl">🎉</span>
+                </div>
+                <p className="text-center text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
+                  +${bonusCredited.amount}
+                </p>
+                <p className="text-center text-sm text-muted-foreground mt-1">
+                  Added to your balance
+                </p>
+              </div>
+            )}
+            
             <Button 
               onClick={() => handleOpenChange(false)}
               className="mt-6"
@@ -592,12 +675,7 @@ export function DepositModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button className="w-full h-12 bg-casino-brand text-black font-bold hover:bg-casino-brand/90 hover:shadow-neon transition-all">
-          <Coins className="w-4 h-4 mr-2" />
-          Deposit
-        </Button>
-      </DialogTrigger>
+
       <DialogContent className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10 p-0 overflow-hidden">
         {/* Header */}
         <div className="p-6 pb-0">

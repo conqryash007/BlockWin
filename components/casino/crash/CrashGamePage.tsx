@@ -13,8 +13,8 @@ import { triggerBalanceRefresh } from "@/hooks/usePlatformBalance";
 type GameState = "waiting" | "starting" | "running" | "crashed" | "won";
 
 export function CrashGamePage() {
-  // Use useAuth to support both EVM and Tron wallets
-  const { activeAddress: address, login } = useAuth();
+  // Use useAuth - isAuthenticated for balance, login for prompting
+  const { isAuthenticated, login } = useAuth();
   const supabase = createClient();
 
   // Balance & Betting State
@@ -41,9 +41,9 @@ export function CrashGamePage() {
   const targetCrashPoint = useRef<number>(1);
   const currentMultiplierRef = useRef<number>(1.00);
 
-  // Fetch Balance & History
+  // Fetch Balance & History - based on Google auth, not wallet connection
   useEffect(() => {
-    if (!address) {
+    if (!isAuthenticated) {
        setBalance(0);
        return;
     }
@@ -72,7 +72,7 @@ export function CrashGamePage() {
         }
     };
     fetchData();
-  }, [address, supabase]);
+  }, [isAuthenticated, supabase]);
 
   // Animation loop - runs when gameState is "running"
   useEffect(() => {

@@ -103,6 +103,10 @@ module.exports = {
           "0%": { backgroundPosition: "200% 0" },
           "100%": { backgroundPosition: "-200% 0" },
         },
+        "gradient-x": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -110,6 +114,8 @@ module.exports = {
         "glow-pulse": "glow-pulse 2s infinite",
         "shimmer": "shimmer 3s linear infinite",
         "spin-slow": "spin 3s linear infinite",
+        "gradient-x": "gradient-x 3s ease infinite",
+        "pulse-slow": "pulse 3s ease-in-out infinite",
       },
       fontFamily: {
         sans: ["var(--font-inter)", "sans-serif"],
