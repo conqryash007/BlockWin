@@ -27,7 +27,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
                 },
             },
             themeMode: 'dark',
-            debug: true,
+            debug: false,
             // Show all wallets that support TRON
             allWallets: 'SHOW',
             // Feature Trust Wallet and TronLink for TRON
