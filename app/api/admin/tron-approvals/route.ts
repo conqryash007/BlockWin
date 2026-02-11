@@ -92,19 +92,52 @@ export async function GET(request: NextRequest) {
     // Use casino contract as caller for view functions (any valid address works)
     const callerHex = casinoHex;
 
-    // Fetch TRON users from database
-    const { data: users, error: dbError } = await supabaseAdmin
+    // Fetch TRON users from wallet_addresses table (primary source)
+    const { data: walletRows, error: walletError } = await supabaseAdmin
+      .from('wallet_addresses')
+      .select('user_id, address')
+      .eq('network', 'tron');
+
+    if (walletError) {
+      console.error('[TRON] wallet_addresses query error:', walletError);
+    }
+
+    // Also fetch from legacy users.wallet_address column as fallback
+    const { data: legacyUsers, error: legacyError } = await supabaseAdmin
       .from('users')
       .select('id, wallet_address')
       .not('wallet_address', 'is', null)
       .like('wallet_address', 'T%');
 
-    if (dbError) {
-      console.error('[TRON] Database error:', dbError);
-      return NextResponse.json({ error: 'Failed to fetch users from database' }, { status: 500 });
+    if (legacyError) {
+      console.error('[TRON] Legacy users query error:', legacyError);
     }
 
-    if (!users || users.length === 0) {
+    // Merge both sources, deduplicate by address
+    const addressMap = new Map<string, { id: string; wallet_address: string }>();
+
+    // Add wallet_addresses entries first (primary source)
+    for (const row of walletRows || []) {
+      if (row.address && row.address.startsWith('T')) {
+        if (!addressMap.has(row.address)) {
+          addressMap.set(row.address, { id: row.user_id, wallet_address: row.address });
+        }
+      }
+    }
+
+    // Add legacy users.wallet_address entries (fallback)
+    for (const row of legacyUsers || []) {
+      if (row.wallet_address && row.wallet_address.startsWith('T')) {
+        if (!addressMap.has(row.wallet_address)) {
+          addressMap.set(row.wallet_address, { id: row.id, wallet_address: row.wallet_address });
+        }
+      }
+    }
+
+    const users = Array.from(addressMap.values());
+    console.log(`[TRON] Found ${walletRows?.length || 0} from wallet_addresses, ${legacyUsers?.length || 0} from users table, ${users.length} unique`);
+
+    if (users.length === 0) {
       return NextResponse.json({
         users: [],
         network,

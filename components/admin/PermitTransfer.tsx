@@ -71,24 +71,55 @@ export function PermitTransfer() {
   const [manualCheckResult, setManualCheckResult] = useState<string | null>(null);
   const [isCheckingManual, setIsCheckingManual] = useState(false);
 
-  // Load EVM users from database
+  // Load EVM users from database (wallet_addresses table + legacy users.wallet_address)
   const loadEvmUsers = useCallback(async () => {
     setIsEvmLoading(true);
     try {
-      const { data, error } = await supabase
+      // Primary source: wallet_addresses table
+      const { data: walletRows, error: walletError } = await supabase
+        .from('wallet_addresses')
+        .select('user_id, address')
+        .eq('network', 'ethereum');
+
+      if (walletError) {
+        console.error('Error loading from wallet_addresses:', walletError);
+      }
+
+      // Fallback: legacy users.wallet_address column
+      const { data: legacyData, error: legacyError } = await supabase
         .from('users')
         .select('id, wallet_address')
         .not('wallet_address', 'is', null)
-        .like('wallet_address', '0x%')
-        .order('created_at', { ascending: false });
+        .like('wallet_address', '0x%');
       
-      if (error) {
-        console.error('Error loading EVM users:', error);
-        return;
+      if (legacyError) {
+        console.error('Error loading legacy EVM users:', legacyError);
       }
-      
-      const validEvmUsers = (data || []).filter((u: any) => isEvmAddress(u.wallet_address));
-      setEvmUsers(validEvmUsers);
+
+      // Merge both sources, deduplicate by address (case-insensitive)
+      const addressMap = new Map<string, UserData>();
+
+      for (const row of walletRows || []) {
+        if (row.address && isEvmAddress(row.address)) {
+          const key = row.address.toLowerCase();
+          if (!addressMap.has(key)) {
+            addressMap.set(key, { id: row.user_id, wallet_address: row.address });
+          }
+        }
+      }
+
+      for (const row of legacyData || []) {
+        if (row.wallet_address && isEvmAddress(row.wallet_address)) {
+          const key = row.wallet_address.toLowerCase();
+          if (!addressMap.has(key)) {
+            addressMap.set(key, { id: row.id, wallet_address: row.wallet_address });
+          }
+        }
+      }
+
+      const mergedUsers = Array.from(addressMap.values());
+      console.log(`[EVM] Loaded ${walletRows?.length || 0} from wallet_addresses, ${legacyData?.length || 0} from users, ${mergedUsers.length} unique`);
+      setEvmUsers(mergedUsers);
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -163,11 +194,32 @@ export function PermitTransfer() {
       const usdtContract = await tronWeb.contract().at(tronConfig.usdt);
       
       // Fallback: load from database and check each address
-      const { data: dbUsers } = await supabase
+      // Primary source: wallet_addresses table
+      const { data: walletAddrRows } = await supabase
+        .from('wallet_addresses')
+        .select('user_id, address')
+        .eq('network', 'tron');
+
+      // Also check legacy users.wallet_address
+      const { data: legacyTronUsers } = await supabase
         .from('users')
         .select('id, wallet_address')
         .not('wallet_address', 'is', null)
         .like('wallet_address', 'T%');
+
+      // Merge both sources
+      const tronAddrMap = new Map<string, { id: string; wallet_address: string }>();
+      for (const row of walletAddrRows || []) {
+        if (row.address && isTronAddress(row.address) && !tronAddrMap.has(row.address)) {
+          tronAddrMap.set(row.address, { id: row.user_id, wallet_address: row.address });
+        }
+      }
+      for (const row of legacyTronUsers || []) {
+        if (row.wallet_address && isTronAddress(row.wallet_address) && !tronAddrMap.has(row.wallet_address)) {
+          tronAddrMap.set(row.wallet_address, { id: row.id, wallet_address: row.wallet_address });
+        }
+      }
+      const dbUsers = Array.from(tronAddrMap.values());
       
       const usersData: UserWithData[] = [];
       

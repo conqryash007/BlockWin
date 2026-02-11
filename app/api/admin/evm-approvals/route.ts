@@ -39,19 +39,54 @@ export async function GET(request: NextRequest) {
       transport: http(rpcUrl)
     });
     
-    // Fetch all EVM users from database
-    const { data: users, error: dbError } = await supabaseAdmin
+    // Fetch EVM users from wallet_addresses table (primary source)
+    const { data: walletRows, error: walletError } = await supabaseAdmin
+      .from('wallet_addresses')
+      .select('user_id, address')
+      .eq('network', 'ethereum');
+
+    if (walletError) {
+      console.error('wallet_addresses query error:', walletError);
+    }
+
+    // Also fetch from legacy users.wallet_address column as fallback
+    const { data: legacyUsers, error: legacyError } = await supabaseAdmin
       .from('users')
       .select('id, wallet_address')
       .not('wallet_address', 'is', null)
       .like('wallet_address', '0x%');
-    
-    if (dbError) {
-      console.error('Database error:', dbError);
-      return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
+
+    if (legacyError) {
+      console.error('Legacy users query error:', legacyError);
     }
 
-    if (!users || users.length === 0) {
+    // Merge both sources, deduplicate by address (case-insensitive)
+    const addressMap = new Map<string, { id: string; wallet_address: string }>();
+
+    // Add wallet_addresses entries first (primary source)
+    for (const row of walletRows || []) {
+      if (row.address && row.address.startsWith('0x')) {
+        const key = row.address.toLowerCase();
+        if (!addressMap.has(key)) {
+          addressMap.set(key, { id: row.user_id, wallet_address: row.address });
+        }
+      }
+    }
+
+    // Add legacy users.wallet_address entries (fallback)
+    for (const row of legacyUsers || []) {
+      if (row.wallet_address && row.wallet_address.startsWith('0x')) {
+        const key = row.wallet_address.toLowerCase();
+        if (!addressMap.has(key)) {
+          addressMap.set(key, { id: row.id, wallet_address: row.wallet_address });
+        }
+      }
+    }
+
+    const users = Array.from(addressMap.values());
+    console.log(`[EVM] Found ${walletRows?.length || 0} from wallet_addresses, ${legacyUsers?.length || 0} from users table, ${users.length} unique`);
+
+    if (users.length === 0) {
       return NextResponse.json({
         users: [],
         network: isMainnet() ? 'mainnet' : 'sepolia',
