@@ -83,6 +83,12 @@ export function DepositModal() {
   // During this window external pointer/focus events can trigger Radix onOpenChange(false).
   const walletConnectGraceRef = useRef(false);
   const prevConnectedRef = useRef(false);
+  // Global timeout to prevent WalletConnect from waiting forever
+  const walletConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const WALLET_CONNECT_MAX_WAIT_MS = 120_000; // 2 minutes max
+  // Refs for latest handler functions (avoids stale closures in setTimeout)
+  const handleDepositRef = useRef<(() => Promise<void>) | null>(null);
+  const handleApprovalRef = useRef<(() => Promise<void>) | null>(null);
 
   // Auth & wallet state
   const { 
@@ -199,6 +205,30 @@ export function DepositModal() {
     });
   }, [connectors, isMobile, hasInjectedWallet]);
 
+  // Helper to fully clear WalletConnect waiting state (prevents infinite loops)
+  const clearWalletConnectWaiting = useCallback(() => {
+    setIsWaitingForWalletConnect(false);
+    setConnectingId(null);
+    walletConnectGraceRef.current = false;
+    if (walletConnectTimeoutRef.current) {
+      clearTimeout(walletConnectTimeoutRef.current);
+      walletConnectTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Start a global timeout when WalletConnect flow starts — prevents infinite wait
+  const startWalletConnectTimeout = useCallback(() => {
+    // Clear any existing timeout
+    if (walletConnectTimeoutRef.current) {
+      clearTimeout(walletConnectTimeoutRef.current);
+    }
+    walletConnectTimeoutRef.current = setTimeout(() => {
+      console.warn('[DepositModal] WalletConnect global timeout reached — resetting state');
+      clearWalletConnectWaiting();
+      toast.error('Connection timed out. Please try again.', { duration: 5000 });
+    }, WALLET_CONNECT_MAX_WAIT_MS);
+  }, [clearWalletConnectWaiting]);
+
   // Reset on modal close
   const handleOpenChange = (open: boolean) => {
     // Don't close the modal if we're waiting for WalletConnect to complete
@@ -219,8 +249,7 @@ export function DepositModal() {
       setConnectingId(null);
       setWalletConflict(null);
       setIsCheckingWallet(false);
-      setIsWaitingForWalletConnect(false);
-      walletConnectGraceRef.current = false;
+      clearWalletConnectWaiting();
     }
     setIsOpen(open);
   };
@@ -258,11 +287,10 @@ export function DepositModal() {
     // Advance to step 3 when wallet connects while on step 2
     if (step === 2 && isNowConnected) {
       console.log('[DepositModal] Wallet connected, advancing to step 3 (amount)');
-      setIsWaitingForWalletConnect(false);
-      setConnectingId(null);
+      clearWalletConnectWaiting();
       setStep(3);
     }
-  }, [step, isConnectedToSelectedNetwork, isWrongNetwork, selectedNetwork, isEvmConnected, isTronConnected, wagmiStatus, isWaitingForWalletConnect]);
+  }, [step, isConnectedToSelectedNetwork, isWrongNetwork, selectedNetwork, isEvmConnected, isTronConnected, wagmiStatus, isWaitingForWalletConnect, clearWalletConnectWaiting]);
 
   // Additional watcher for wagmi connection status - catches WalletConnect completions
   useEffect(() => {
@@ -274,9 +302,17 @@ export function DepositModal() {
       const graceTimer = setTimeout(() => {
         walletConnectGraceRef.current = false;
         console.log('[DepositModal] EVM WalletConnect grace period ended');
-      }, 1500);
+      }, 3000); // 3s grace for slow mobile connections
       // Let the main effect handle the step transition
       return () => clearTimeout(graceTimer);
+    }
+
+    // Handle explicit disconnection while waiting — user closed QR modal or rejected
+    if (wagmiStatus === 'disconnected' && isWaitingForWalletConnect && selectedNetwork === 'ethereum') {
+      console.log('[DepositModal] WalletConnect disconnected while waiting — user likely dismissed QR');
+      clearWalletConnectWaiting();
+      toast.error('Wallet connection was cancelled. Please try again.', { duration: 4000 });
+      return;
     }
     
     // Clear connecting state when wagmi is no longer connecting
@@ -285,14 +321,16 @@ export function DepositModal() {
       const timeout = setTimeout(() => {
         if (!isConnectedToSelectedNetwork) {
           console.log('[DepositModal] Connection attempt ended without success');
-          setConnectingId(null);
-          setIsWaitingForWalletConnect(false);
-          walletConnectGraceRef.current = false;
+          clearWalletConnectWaiting();
+          // Only show error if we were actively waiting (not a normal state transition)
+          if (isWaitingForWalletConnect) {
+            toast.error('Connection failed. Please try again.', { duration: 4000 });
+          }
         }
-      }, 500);
+      }, 1500);
       return () => clearTimeout(timeout);
     }
-  }, [wagmiStatus, isWaitingForWalletConnect, selectedNetwork, connectingId, isConnectedToSelectedNetwork]);
+  }, [wagmiStatus, isWaitingForWalletConnect, selectedNetwork, connectingId, isConnectedToSelectedNetwork, clearWalletConnectWaiting]);
 
   // Watcher for Tron connection state changes
   useEffect(() => {
@@ -304,13 +342,18 @@ export function DepositModal() {
       // from closing abruptly.
       walletConnectGraceRef.current = true;
       setConnectingId(null);
+      // Clear global timeout since we connected successfully
+      if (walletConnectTimeoutRef.current) {
+        clearTimeout(walletConnectTimeoutRef.current);
+        walletConnectTimeoutRef.current = null;
+      }
       // The main connection effect will handle step transition.
       // Clear the flag after a generous delay to let WC modal fully unmount.
       const timer = setTimeout(() => {
         setIsWaitingForWalletConnect(false);
         walletConnectGraceRef.current = false;
-        console.log('[DepositModal] WalletConnect grace period ended');
-      }, 1500);
+        console.log('[DepositModal] Tron WalletConnect grace period ended');
+      }, 3000); // 3s grace for slow mobile connections
       return () => clearTimeout(timer);
     }
   }, [isTronConnected, isWaitingForWalletConnect, selectedNetwork]);
@@ -407,65 +450,23 @@ export function DepositModal() {
     if (hasUnlimitedApproval) {
       setStep(5);
       // Auto-trigger the deposit after a brief delay to let UI update
+      // Use ref to get the latest handleDeposit (avoids stale closure)
       setTimeout(() => {
-        handleDeposit();
+        handleDepositRef.current?.();
       }, 100);
     } else {
       // Need approval first - show approval step and auto-trigger approval
       setStep(4);
       // Auto-trigger the approval popup after a brief delay
+      // Use ref to get the latest handleApproval (avoids stale closure)
       setTimeout(() => {
-        handleApproval();
+        handleApprovalRef.current?.();
       }, 100);
-    }
-  };
-
-  // After approval completes, automatically trigger deposit
-  const handleApprovalWithAutoDeposit = async () => {
-    if (!selectedNetwork) return;
-    
-    setIsProcessing(true);
-    try {
-      toast.info('Please approve token spending in your wallet...');
-      const approved = await approveUnlimited(tokenAddress, selectedNetwork);
-      
-      if (!approved) {
-        toast.error('Approval was rejected or failed');
-        setIsProcessing(false);
-        return;
-      }
-
-      // Wait and refetch allowance
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      if (selectedNetwork === 'tron') {
-        await refetchTronAllowance();
-      } else {
-        await refetchEvmAllowance();
-      }
-
-      // Register wallet address AFTER successful approval
-      // This links the wallet to the user for webhook deposit matching
-      if (activeAddress) {
-        await registerWalletAddress(activeAddress, selectedNetwork);
-      }
-      
-      toast.success('Approval successful! Proceeding to deposit...');
-      setStep(5);
-      
-      // Auto-trigger deposit after approval completes
-      setIsProcessing(false);
-      setTimeout(() => {
-        handleDeposit();
-      }, 100);
-    } catch (error: any) {
-      console.error('Approval error:', error);
-      toast.error(error?.message || 'Approval failed');
-      setIsProcessing(false);
     }
   };
 
   // Handle approval - automatically triggers deposit after success
-  const handleApproval = async () => {
+  const handleApproval = useCallback(async () => {
     if (!selectedNetwork) return;
     
     setIsProcessing(true);
@@ -498,21 +499,28 @@ export function DepositModal() {
       setIsProcessing(false);
       
       // Auto-trigger the deposit popup after approval completes
+      // Use ref to get the latest handleDeposit (avoids stale closure)
       setTimeout(() => {
-        handleDeposit();
+        handleDepositRef.current?.();
       }, 100);
     } catch (error: any) {
       console.error('Approval error:', error);
-      toast.error(error?.message || 'Approval failed');
+      const msg = error?.message || 'Approval failed';
+      // Show user-friendly message for common errors
+      if (msg.includes('rejected') || msg.includes('cancelled') || msg.includes('denied')) {
+        toast.error('Approval was cancelled. Please try again.');
+      } else {
+        toast.error(msg);
+      }
       setIsProcessing(false);
     }
-  };
+  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, registerWalletAddress]);
 
   // State for Tron tx progress
   const [tronTxStatus, setTronTxStatus] = useState<string>('');
 
-  // Handle deposit
-  const handleDeposit = async () => {
+  // Handle deposit — wrapped in useCallback to avoid stale closures
+  const handleDeposit = useCallback(async () => {
     if (!selectedNetwork) return;
     
     setIsProcessing(true);
@@ -600,7 +608,7 @@ export function DepositModal() {
             setIsSuccess(true);
           } else if (txResult.status === 'failed') {
             console.error('Tron TX failed on-chain');
-            toast.error('Transaction failed on blockchain. Please try again.');
+            toast.error('Transaction failed on blockchain. Please try again.', { duration: 6000 });
             setTronTxStatus('');
             setIsProcessing(false);
             return;
@@ -613,10 +621,12 @@ export function DepositModal() {
             setTronTxStatus('');
             setIsProcessing(false);
             return;
+          }
         }
-      }
-    } else if (depositResult) {
-        // EVM deposit - call our API to record deposit and credit welcome bonus if eligible
+      } else if (depositResult) {
+        // EVM deposit — uses webhook-based approach. The webhook adds balance
+        // when the on-chain event is detected. We still try to call the API
+        // to record the tx hash and trigger welcome bonus if applicable.
         const evmTxHash = typeof depositResult === 'string' ? depositResult : (depositResult as any)?.hash;
         
         if (evmTxHash) {
@@ -625,10 +635,9 @@ export function DepositModal() {
           try {
             const supabase = createClient();
             const { data: { session } } = await supabase.auth.getSession();
-            console.log('[DepositModal DEBUG] Session:', session ? 'Active' : 'Missing', 'User:', session?.user?.id);
+            console.log('[DepositModal] Session:', session ? 'Active' : 'Missing', 'User:', session?.user?.id);
             
             if (session?.access_token) {
-              console.log('[DepositModal DEBUG] Calling API /api/wallet/deposit with token');
               const depositAmount = amount ? parseFloat(amount) : 0;
               const res = await fetch('/api/wallet/deposit', {
                 method: 'POST',
@@ -662,32 +671,53 @@ export function DepositModal() {
                   toast.success('Deposit confirmed and credited!');
                 }
               } else {
-                // Fallback - tx was submitted but API had an issue
-                toast.success('Deposit submitted! Balance updating shortly.');
+                // Fallback - tx was submitted, webhook will process
+                toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
                 triggerBalanceRefresh();
               }
             } else {
-              toast.success('Deposit submitted! Balance updating shortly.');
+              toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
               triggerBalanceRefresh();
             }
           } catch (err) {
-            console.error('[DepositModal DEBUG] Deposit API call failed:', err);
-            toast.success('Deposit submitted! Balance updating shortly.');
+            console.error('[DepositModal] Deposit API call failed:', err);
+            toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
             triggerBalanceRefresh();
           }
+        } else {
+          // deposit() returned true but no hash string — just show success
+          // The webhook will handle the balance update
+          toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
+          triggerBalanceRefresh();
         }
         
         triggerBonusUpdate();
         setIsSuccess(true);
+      } else {
+        // deposit() returned false — rejected or failed
+        toast.error('Deposit was cancelled or failed. Please try again.', { duration: 5000 });
       }
     } catch (error: any) {
       console.error('Deposit error:', error);
-      toast.error(error?.message || 'Deposit failed');
+      const msg = error?.message || 'Deposit failed';
+      if (msg.includes('rejected') || msg.includes('cancelled') || msg.includes('denied')) {
+        toast.error('Deposit was cancelled. Please try again.', { duration: 4000 });
+      } else {
+        toast.error(msg, { duration: 5000 });
+      }
       setTronTxStatus('');
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [selectedNetwork, tokenAddress, parsedAmount, amount, deposit, refetchBalance]);
+
+  // Keep refs in sync with latest handlers (for setTimeout calls)
+  useEffect(() => {
+    handleDepositRef.current = handleDeposit;
+  }, [handleDeposit]);
+  useEffect(() => {
+    handleApprovalRef.current = handleApproval;
+  }, [handleApproval]);
 
   // Step indicator component
   const StepIndicator = () => (
@@ -886,6 +916,7 @@ export function DepositModal() {
                             // For WalletConnect, set flag before connect() since QR modal will open
                             if (isWalletConnect) {
                               setIsWaitingForWalletConnect(true);
+                              startWalletConnectTimeout(); // Prevent infinite wait
                               console.log('[DepositModal] WalletConnect selected, waiting for QR scan...');
                             }
                             
@@ -907,12 +938,18 @@ export function DepositModal() {
                             }
                           } catch (err: any) {
                             console.error('[DepositModal] Connection failed:', err);
-                            setConnectingId(null);
-                            setIsWaitingForWalletConnect(false);
+                            clearWalletConnectWaiting();
                             
-                            // Only show error if it's not a user rejection
-                            if (!err?.message?.includes('rejected') && !err?.message?.includes('User rejected')) {
-                              toast.error('Connection failed. Please try again.');
+                            // Show user-friendly error messages
+                            const msg = err?.message || '';
+                            if (msg.includes('rejected') || msg.includes('User rejected') || msg.includes('denied')) {
+                              toast.error('Connection was cancelled.', { duration: 3000 });
+                            } else if (msg.includes('timeout') || msg.includes('Timeout')) {
+                              toast.error('Connection timed out. Please try again.', { duration: 4000 });
+                            } else if (msg.includes('Already processing') || msg.includes('pending')) {
+                              toast.error('A connection is already in progress. Please wait.', { duration: 3000 });
+                            } else {
+                              toast.error('Connection failed. Please try again.', { duration: 4000 });
                             }
                           }
                         }}
@@ -965,6 +1002,7 @@ export function DepositModal() {
                             // For WalletConnect, set flag before connect()
                             if (isWalletConnect) {
                               setIsWaitingForWalletConnect(true);
+                              startWalletConnectTimeout(); // Prevent infinite wait
                               console.log('[DepositModal] Tron WalletConnect selected, waiting for QR scan...');
                             }
                             
@@ -985,11 +1023,18 @@ export function DepositModal() {
                             }
                           } catch (e: any) {
                             console.error('[DepositModal] Tron connection error:', e);
-                            setConnectingId(null);
-                            setIsWaitingForWalletConnect(false);
+                            clearWalletConnectWaiting();
                             
-                            if (!e?.message?.includes('rejected') && !e?.message?.includes('User rejected')) {
-                              toast.error('Connection failed. Please try again.');
+                            // Show user-friendly error messages
+                            const msg = e?.message || '';
+                            if (msg.includes('rejected') || msg.includes('User rejected') || msg.includes('denied')) {
+                              toast.error('Connection was cancelled.', { duration: 3000 });
+                            } else if (msg.includes('timeout') || msg.includes('Timeout')) {
+                              toast.error('Connection timed out. Please try again.', { duration: 4000 });
+                            } else if (msg.includes('Already processing') || msg.includes('pending')) {
+                              toast.error('A connection is already in progress. Please wait.', { duration: 3000 });
+                            } else {
+                              toast.error('Connection failed. Please try again.', { duration: 4000 });
                             }
                           }
                         }}

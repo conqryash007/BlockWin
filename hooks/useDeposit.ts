@@ -248,8 +248,27 @@ Timestamp: ${new Date().toISOString()}`;
 
       try {
         if (network === 'tron') {
-          const signature = await signMessageTron(message);
-          return signature ?? null;
+          try {
+            const signature = await signMessageTron(message);
+            return signature ?? null;
+          } catch (tronSignError: any) {
+            console.warn('[signTerms] Tron signMessage failed:', tronSignError);
+            // Many Tron wallets (especially via WalletConnect) don't support signMessage.
+            // Don't block the deposit flow — allow the user to proceed without signing.
+            const msg = tronSignError?.message || '';
+            if (msg.includes('not supported') || msg.includes('not implement') || msg.includes('Method not found') || msg.includes('does not support')) {
+              toast.info('Terms signing is not supported by this wallet. Proceeding without signature.', { duration: 4000 });
+              return 'skipped-unsupported' as any;
+            }
+            // If user explicitly rejected, that's intentional
+            if (msg.includes('rejected') || msg.includes('cancelled') || msg.includes('denied')) {
+              toast.error('Signature was cancelled.');
+              return null;
+            }
+            // For other errors, still allow proceeding
+            toast.info('Could not sign terms with this wallet. Proceeding anyway.', { duration: 4000 });
+            return 'skipped-error' as any;
+          }
         }
         const signature = await signMessageAsync({ message });
         return signature;
