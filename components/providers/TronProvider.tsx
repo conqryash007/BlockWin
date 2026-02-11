@@ -17,6 +17,7 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
             // IMPORTANT: This sets the TRON network for WalletConnect
             network: isMainnet() ? 'Mainnet' : 'Shasta',
             options: {
+                relayUrl: 'wss://relay.walletconnect.com',
                 projectId: projectId,
                 metadata: {
                     name: 'BlockWin Casino',
@@ -26,6 +27,9 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
                 },
             },
             themeMode: 'dark',
+            themeVariables: {
+                '--w3m-z-index': 9999,
+            },
             debug: true,
             // Feature Trust Wallet and TronLink for TRON
             featuredWalletIds: [

@@ -367,8 +367,10 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                           }, 45000); // 45s safety timeout
                                       }
                                       
+                                      // Select wallet first, then allow WalletProvider to process selection before connect
                                       if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                           selectTronWallet(wallet.adapter.name);
+                                          await new Promise(resolve => setTimeout(resolve, 0));
                                       }
                                       
                                       await connectTronWallet();
@@ -379,7 +381,12 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                       setIsWaitingForWalletConnect(false);
                                       
                                   } catch (e: any) {
-                                      console.error("[WalletModal] Tron connection error:", e);
+                                      console.error('[WalletModal] Tron connection error:', {
+                                          message: e?.message,
+                                          cause: e?.cause,
+                                          wallet: wallet.adapter.name,
+                                          error: e,
+                                      });
                                       setConnectingId(null);
                                       setIsWaitingForWalletConnect(false);
                                       

@@ -1,5 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  transpilePackages: [
+    '@reown/appkit',
+    '@reown/appkit-common',
+    '@reown/appkit-core',
+    '@reown/appkit-ui',
+    '@reown/appkit-scaffold-ui',
+    '@reown/appkit-controllers',
+    '@reown/appkit-utils',
+    '@reown/appkit-polyfills',
+    '@tronweb3/walletconnect-tron',
+  ],
   webpack: (config, { isServer }) => {
     // Fix for @metamask/sdk import issue in Next.js
     if (!isServer) {
