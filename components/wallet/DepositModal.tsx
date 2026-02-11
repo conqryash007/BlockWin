@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useConnect, useChainId, useSwitchChain, useDisconnect, useAccount, Connector } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
+import { useTronWalletConnectContext } from '@/components/providers/TronWalletConnectContext';
 import { NetworkSelector } from './NetworkSelector';
 import { cn } from '@/lib/utils';
 import { SUPPORTED_TOKENS, TRON_TOKENS } from '@/lib/contracts';
@@ -108,6 +109,7 @@ export function DepositModal() {
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
+  const { setIncludeTronWalletConnect } = useTronWalletConnectContext();
   // Tron wallet hooks
   const { 
     wallets: tronWallets, 
@@ -414,7 +416,8 @@ export function DepositModal() {
   // Handle network selection
   const handleNetworkSelect = async (network: 'ethereum' | 'tron') => {
     setSelectedNetwork(network);
-    
+    if (network === 'tron') setIncludeTronWalletConnect(true);
+
     // If switching to Tron but EVM is connected, disconnect EVM first
     if (network === 'tron' && isEvmConnected) {
       try {

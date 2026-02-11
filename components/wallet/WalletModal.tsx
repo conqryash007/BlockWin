@@ -14,6 +14,7 @@ import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser } fro
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
+import { useTronWalletConnectContext } from '@/components/providers/TronWalletConnectContext';
 import { NetworkSelector } from './NetworkSelector';
 import { toast } from 'sonner';
 
@@ -75,6 +76,7 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
     wallet: currentTronWallet
   } = useWallet();
 
+  const { setIncludeTronWalletConnect } = useTronWalletConnectContext();
   const { isAuthenticated, login, loading, accountStatus } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
@@ -240,7 +242,10 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
           <div className="p-6 pt-2">
             <NetworkSelector
               value={selectedNetwork}
-              onChange={(network) => setSelectedNetwork(network)}
+              onChange={(network) => {
+                setSelectedNetwork(network);
+                if (network === 'tron') setIncludeTronWalletConnect(true);
+              }}
             />
           </div>
         ) : !isAnyConnected && selectedNetwork === 'ethereum' ? (
