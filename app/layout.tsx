@@ -13,6 +13,7 @@ import { headers } from 'next/headers';
 import { cookieToInitialState } from 'wagmi';
 import { config } from '@/lib/config';
 import { TronProvider } from "@/components/providers/TronProvider";
+import { TronWalletConnectQRProvider } from "@/components/providers/TronWalletConnectQRContext";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { WelcomeBonusPopup } from "@/components/dashboard/WelcomeBonusPopup";
 
@@ -45,6 +46,7 @@ export default async function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={cn(inter.variable, "min-h-screen bg-background font-sans antialiased overflow-hidden")}>
          <Providers initialState={initialState}>
+          <TronWalletConnectQRProvider>
           <TronProvider>
             <AuthProvider>
               <BetslipProvider>
@@ -66,6 +68,7 @@ export default async function RootLayout({
               </BetslipProvider>
             </AuthProvider>
           </TronProvider>
+          </TronWalletConnectQRProvider>
         </Providers>
       </body>
     </html>

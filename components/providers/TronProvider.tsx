@@ -1,15 +1,17 @@
 "use client";
 
 import { WalletProvider } from '@tronweb3/tronwallet-adapter-react-hooks';
-import { WalletConnectAdapter } from '@tronweb3/tronwallet-adapter-walletconnect';
 import { TronLinkAdapter } from '@tronweb3/tronwallet-adapter-tronlink';
 import { TrustAdapter } from '@tronweb3/tronwallet-adapter-trust';
 import { useMemo, useState, useCallback } from 'react';
 import { projectId, isMainnet } from '@/lib/config';
 import { TronWalletConnectContext } from './TronWalletConnectContext';
+import { useTronWalletConnectQRContext } from './TronWalletConnectQRContext';
+import { TronWalletConnectCustomAdapter } from '@/lib/tronWalletConnectCustomAdapter';
 
 export function TronProvider({ children }: { children: React.ReactNode }) {
     const [includeWalletConnect, setIncludeWalletConnect] = useState(false);
+    const { onDisplayUri, onCloseModal } = useTronWalletConnectQRContext();
     const setIncludeTronWalletConnect = useCallback((include: boolean) => {
         setIncludeWalletConnect((prev) => (include ? true : prev));
     }, []);
@@ -17,10 +19,10 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
     const adapters = useMemo(() => {
         const tronLink = new TronLinkAdapter();
         const trustWallet = new TrustAdapter();
-        const list: (typeof tronLink | typeof trustWallet | InstanceType<typeof WalletConnectAdapter>)[] = [tronLink, trustWallet];
+        const list: (typeof tronLink | typeof trustWallet | TronWalletConnectCustomAdapter)[] = [tronLink, trustWallet];
 
         if (includeWalletConnect) {
-            const walletConnect = new WalletConnectAdapter({
+            const walletConnect = new TronWalletConnectCustomAdapter({
                 network: isMainnet() ? 'Mainnet' : 'Shasta',
                 options: {
                     relayUrl: 'wss://relay.walletconnect.com',
@@ -32,22 +34,14 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
                         icons: ['https://blockwin.space/logo.png'],
                     },
                 },
-                themeMode: 'dark',
-                themeVariables: {
-                    '--w3m-z-index': 9999,
-                },
-                allWallets: 'SHOW',
-                debug: true,
-                featuredWalletIds: [
-                    '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
-                    '225affb176778569276e484e1b92637ad061b01e13a048b35a9d280c3b58970f', // TronLink
-                ],
+                onDisplayUri,
+                onCloseModal,
             });
             list.push(walletConnect);
         }
 
         return list;
-    }, [includeWalletConnect]);
+    }, [includeWalletConnect, onDisplayUri, onCloseModal]);
 
     return (
         <WalletProvider adapters={adapters} disableAutoConnectOnLoad={false}>
