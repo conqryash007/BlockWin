@@ -30,8 +30,9 @@ export function TronProvider({ children }: { children: React.ReactNode }) {
             themeVariables: {
                 '--w3m-z-index': 9999,
             },
+            allWallets: 'SHOW',
             debug: true,
-            // Feature Trust Wallet and TronLink for TRON
+            // Feature Trust Wallet and TronLink for TRON (shown first)
             featuredWalletIds: [
                 '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0', // Trust Wallet
                 '225affb176778569276e484e1b92637ad061b01e13a048b35a9d280c3b58970f', // TronLink
