@@ -79,6 +79,9 @@ export function DepositModal() {
   const [isCheckingWallet, setIsCheckingWallet] = useState(false);
   // Track if we're waiting for WalletConnect to complete (QR modal is open)
   const [isWaitingForWalletConnect, setIsWaitingForWalletConnect] = useState(false);
+  // Grace period: after WalletConnect connects, the WC modal takes time to unmount.
+  // During this window external pointer/focus events can trigger Radix onOpenChange(false).
+  const walletConnectGraceRef = useRef(false);
   const prevConnectedRef = useRef(false);
 
   // Auth & wallet state
@@ -199,8 +202,9 @@ export function DepositModal() {
   // Reset on modal close
   const handleOpenChange = (open: boolean) => {
     // Don't close the modal if we're waiting for WalletConnect to complete
-    if (!open && isWaitingForWalletConnect) {
-      console.log('[DepositModal] Preventing modal close while waiting for WalletConnect');
+    // or if we're in the grace period (WC modal still unmounting)
+    if (!open && (isWaitingForWalletConnect || walletConnectGraceRef.current)) {
+      console.log('[DepositModal] Preventing modal close while waiting for WalletConnect / grace period');
       return;
     }
     
@@ -216,9 +220,19 @@ export function DepositModal() {
       setWalletConflict(null);
       setIsCheckingWallet(false);
       setIsWaitingForWalletConnect(false);
+      walletConnectGraceRef.current = false;
     }
     setIsOpen(open);
   };
+
+  // Prevent outside interactions (pointer-down / focus) from closing the dialog
+  // while a WalletConnect flow is active. The WC QR modal sits outside the Radix
+  // Dialog portal so its open/close lifecycle fires outside-interaction events.
+  const preventOutsideDismiss = useCallback((e: Event) => {
+    if (isWaitingForWalletConnect || walletConnectGraceRef.current || connectingId) {
+      e.preventDefault();
+    }
+  }, [isWaitingForWalletConnect, connectingId]);
 
   // Auto-advance when wallet connects - robust detection for WalletConnect
   useEffect(() => {
@@ -255,7 +269,14 @@ export function DepositModal() {
     // When wagmi status changes to 'connected' and we were waiting for WalletConnect
     if (wagmiStatus === 'connected' && isWaitingForWalletConnect && selectedNetwork === 'ethereum') {
       console.log('[DepositModal] WalletConnect connection detected via wagmi status');
+      // Start grace period — the WC modal is closing and may trigger outside-click
+      walletConnectGraceRef.current = true;
+      const graceTimer = setTimeout(() => {
+        walletConnectGraceRef.current = false;
+        console.log('[DepositModal] EVM WalletConnect grace period ended');
+      }, 1500);
       // Let the main effect handle the step transition
+      return () => clearTimeout(graceTimer);
     }
     
     // Clear connecting state when wagmi is no longer connecting
@@ -266,6 +287,7 @@ export function DepositModal() {
           console.log('[DepositModal] Connection attempt ended without success');
           setConnectingId(null);
           setIsWaitingForWalletConnect(false);
+          walletConnectGraceRef.current = false;
         }
       }, 500);
       return () => clearTimeout(timeout);
@@ -276,9 +298,20 @@ export function DepositModal() {
   useEffect(() => {
     if (isTronConnected && isWaitingForWalletConnect && selectedNetwork === 'tron') {
       console.log('[DepositModal] Tron WalletConnect connection detected');
-      setIsWaitingForWalletConnect(false);
+      // Don't clear isWaitingForWalletConnect immediately!
+      // The WalletConnect QR modal is still unmounting and will trigger outside-click
+      // events on the Radix Dialog. Use a grace period to prevent the deposit modal
+      // from closing abruptly.
+      walletConnectGraceRef.current = true;
       setConnectingId(null);
-      // The main connection effect will handle step transition
+      // The main connection effect will handle step transition.
+      // Clear the flag after a generous delay to let WC modal fully unmount.
+      const timer = setTimeout(() => {
+        setIsWaitingForWalletConnect(false);
+        walletConnectGraceRef.current = false;
+        console.log('[DepositModal] WalletConnect grace period ended');
+      }, 1500);
+      return () => clearTimeout(timer);
     }
   }, [isTronConnected, isWaitingForWalletConnect, selectedNetwork]);
 
@@ -693,7 +726,11 @@ export function DepositModal() {
     return (
       <Dialog open={isOpen} onOpenChange={handleOpenChange}>
 
-        <DialogContent className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10">
+        <DialogContent
+        className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10"
+        onPointerDownOutside={preventOutsideDismiss}
+        onInteractOutside={preventOutsideDismiss}
+      >
           <div className="flex flex-col items-center justify-center py-8">
             <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
               <CheckCircle2 className="w-10 h-10 text-emerald-500" />
@@ -757,7 +794,11 @@ export function DepositModal() {
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
 
-      <DialogContent className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10 p-0 overflow-hidden">
+      <DialogContent
+        className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10 p-0 overflow-hidden"
+        onPointerDownOutside={preventOutsideDismiss}
+        onInteractOutside={preventOutsideDismiss}
+      >
         {/* Header */}
         <div className="p-6 pb-0">
           <DialogHeader>
