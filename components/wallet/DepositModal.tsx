@@ -234,7 +234,8 @@ export function DepositModal() {
   const handleOpenChange = (open: boolean) => {
     // Don't close the modal if we're waiting for WalletConnect to complete
     // or if we're in the grace period (WC modal still unmounting)
-    if (!open && (isWaitingForWalletConnect || walletConnectGraceRef.current)) {
+    // EXCEPTION: If the deposit was successful (isSuccess is true), always allow closing
+    if (!open && !isSuccess && (isWaitingForWalletConnect || walletConnectGraceRef.current)) {
       console.log('[DepositModal] Preventing modal close while waiting for WalletConnect / grace period');
       return;
     }
@@ -258,11 +259,14 @@ export function DepositModal() {
   // Prevent outside interactions (pointer-down / focus) from closing the dialog
   // while a WalletConnect flow is active. The WC QR modal sits outside the Radix
   // Dialog portal so its open/close lifecycle fires outside-interaction events.
+  // EXCEPTION: If isSuccess is true, we want to allow the user to close the modal.
   const preventOutsideDismiss = useCallback((e: Event) => {
+    if (isSuccess) return;
+    
     if (isWaitingForWalletConnect || walletConnectGraceRef.current || connectingId) {
       e.preventDefault();
     }
-  }, [isWaitingForWalletConnect, connectingId]);
+  }, [isWaitingForWalletConnect, connectingId, isSuccess]);
 
   // Auto-advance when wallet connects - robust detection for WalletConnect
   useEffect(() => {
@@ -611,7 +615,12 @@ export function DepositModal() {
               toast.success('Deposit confirmed! Balance updating shortly.');
             }
             
+            
             setIsSuccess(true);
+            // Clear any lingering connection states that might block closing
+            setConnectingId(null);
+            setIsWaitingForWalletConnect(false);
+            walletConnectGraceRef.current = false;
           } else if (txResult.status === 'failed') {
             console.error('Tron TX failed on-chain');
             toast.error('Transaction failed on blockchain. Please try again.', { duration: 6000 });

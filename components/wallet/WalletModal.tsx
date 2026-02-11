@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { NetworkSelector } from './NetworkSelector';
+import { toast } from 'sonner';
 
 interface WalletModalProps {
   open: boolean;
@@ -355,17 +356,44 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                       if (isWalletConnect) {
                                           setIsWaitingForWalletConnect(true);
                                           console.log('[WalletModal] Tron WalletConnect selected, waiting for QR scan...');
+                                          
+                                          // Set a safety timeout for WalletConnect
+                                          setTimeout(() => {
+                                              if (isWaitingForWalletConnect) {
+                                                  console.log('[WalletModal] Tron WalletConnect timeout safety trigger');
+                                                  setIsWaitingForWalletConnect(false);
+                                                  setConnectingId(null);
+                                              }
+                                          }, 45000); // 45s safety timeout
                                       }
                                       
                                       if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                           selectTronWallet(wallet.adapter.name);
                                       }
+                                      
                                       await connectTronWallet();
                                       console.log(`[WalletModal] Tron connect() resolved for ${wallet.adapter.name}`);
+                                      
+                                      // Clear connecting state on success
+                                      setConnectingId(null);
+                                      setIsWaitingForWalletConnect(false);
+                                      
                                   } catch (e: any) {
                                       console.error("[WalletModal] Tron connection error:", e);
                                       setConnectingId(null);
                                       setIsWaitingForWalletConnect(false);
+                                      
+                                      // Show user-friendly error messages
+                                      const msg = e?.message || '';
+                                      if (msg.includes('rejected') || msg.includes('User rejected') || msg.includes('denied')) {
+                                          toast.error('Connection was cancelled.');
+                                      } else if (msg.includes('timeout') || msg.includes('Timeout')) {
+                                          toast.error('Connection timed out. Please try again.');
+                                      } else if (msg.includes('Already processing') || msg.includes('pending')) {
+                                          toast.error('A connection is already in progress. Please wait.');
+                                      } else {
+                                          toast.error('Connection failed. Please try again.');
+                                      }
                                   }
                               }}
                               className={cn(
