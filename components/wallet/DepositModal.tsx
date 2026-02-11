@@ -86,7 +86,7 @@ export function DepositModal() {
   const prevConnectedRef = useRef(false);
   // Global timeout to prevent WalletConnect from waiting forever
   const walletConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const WALLET_CONNECT_MAX_WAIT_MS = 120_000; // 2 minutes max
+  const WALLET_CONNECT_MAX_WAIT_MS = 30_000; // 30 seconds max
   // Refs for latest handler functions (avoids stale closures in setTimeout)
   const handleDepositRef = useRef<(() => Promise<void>) | null>(null);
   const handleApprovalRef = useRef<(() => Promise<void>) | null>(null);

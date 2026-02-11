@@ -127,6 +127,9 @@ export const config = createConfig({
       projectId, 
       showQrModal: true,
       metadata,
+      // Override the default relay URL — the SDK defaults to wss://relay.walletconnect.org
+      // which is failing with WebSocket errors. The .com domain is the current Reown relay.
+      relayUrl: 'wss://relay.walletconnect.com',
       // Explicitly set the required chains for WalletConnect v2
       // This ensures mobile wallets know which chains to connect with
       qrModalOptions: {
