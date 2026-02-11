@@ -21,6 +21,8 @@ interface WalletModalProps {
   onOpenChange: (open: boolean) => void;
   isConnected: boolean;
   onConnect?: () => void;
+  /** When true, skip authentication checks and only handle wallet connection (used in admin screens) */
+  walletOnly?: boolean;
 }
 
 const getWalletStyle = (name: string) => {
@@ -53,7 +55,7 @@ const getWalletStyle = (name: string) => {
 
 
 
-export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProps) {
+export function WalletModal({ open, onOpenChange, isConnected, walletOnly = false }: WalletModalProps) {
   const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [isWaitingForWalletConnect, setIsWaitingForWalletConnect] = useState(false);
@@ -177,8 +179,16 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
     }
   }, [wagmiStatus, isWaitingForWalletConnect]);
 
-  // Don't render modal if authenticated
-  if (isAuthenticated && open) {
+  // In walletOnly mode, auto-close modal once any wallet connects
+  useEffect(() => {
+    if (walletOnly && open && isAnyConnected) {
+      console.log('[WalletModal] walletOnly mode: wallet connected, closing modal');
+      handleOpenChange(false);
+    }
+  }, [walletOnly, open, isAnyConnected]);
+
+  // Don't render modal if authenticated (unless walletOnly mode for admin screens)
+  if (isAuthenticated && open && !walletOnly) {
     return null;
   }
   
@@ -419,7 +429,7 @@ export function WalletModal({ open, onOpenChange, isConnected }: WalletModalProp
                     If the switch fails, please manually change your network in your wallet app.
                 </p>
             </div>
-        ) : !isAuthenticated ? (
+        ) : !isAuthenticated && !walletOnly ? (
             <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
                 {accountStatus === 'checking' ? (
                     <>

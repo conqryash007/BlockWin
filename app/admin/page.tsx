@@ -60,11 +60,12 @@ function AdminDashboardContent() {
         </div>
       </div>
 
-      {/* Wallet Modal */}
+      {/* Wallet Modal - walletOnly mode skips auth flow since admin is already authenticated */}
       <WalletModal
         open={walletModalOpen}
         onOpenChange={setWalletModalOpen}
         isConnected={isEvmConnected}
+        walletOnly
       />
 
       {/* Tabbed Content */}
