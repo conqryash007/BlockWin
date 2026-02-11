@@ -82,6 +82,7 @@ export function DepositModal() {
   // Grace period: after WalletConnect connects, the WC modal takes time to unmount.
   // During this window external pointer/focus events can trigger Radix onOpenChange(false).
   const walletConnectGraceRef = useRef(false);
+  const prevWagmiStatusRef = useRef<string | null>(null);
   const prevConnectedRef = useRef(false);
   // Global timeout to prevent WalletConnect from waiting forever
   const walletConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -308,12 +309,17 @@ export function DepositModal() {
     }
 
     // Handle explicit disconnection while waiting — user closed QR modal or rejected
-    if (wagmiStatus === 'disconnected' && isWaitingForWalletConnect && selectedNetwork === 'ethereum') {
-      console.log('[DepositModal] WalletConnect disconnected while waiting — user likely dismissed QR');
+    // Only trigger if wagmi was previously in a connecting state (to avoid false positives
+    // when the QR modal first opens and wagmi is already 'disconnected')
+    if (wagmiStatus === 'disconnected' && isWaitingForWalletConnect && selectedNetwork === 'ethereum' 
+        && prevWagmiStatusRef.current && (prevWagmiStatusRef.current === 'connecting' || prevWagmiStatusRef.current === 'reconnecting')) {
+      console.log('[DepositModal] WalletConnect disconnected after connecting attempt — user likely dismissed QR');
       clearWalletConnectWaiting();
       toast.error('Wallet connection was cancelled. Please try again.', { duration: 4000 });
-      return;
     }
+    
+    // Track previous wagmi status for transition detection
+    prevWagmiStatusRef.current = wagmiStatus;
     
     // Clear connecting state when wagmi is no longer connecting
     if (wagmiStatus !== 'connecting' && wagmiStatus !== 'reconnecting' && connectingId && selectedNetwork === 'ethereum') {
