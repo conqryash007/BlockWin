@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { SUPPORTED_TOKENS, TRON_TOKENS } from '@/lib/contracts';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   }, [selectedNetwork, activeTokens, selectedToken]);
 
   const { isConnected } = useAccount();
+  const publicClient = usePublicClient();
   const token = activeTokens[selectedToken as keyof typeof activeTokens];
   const tokenAddress = token?.address as `0x${string}`; // Type assertion for compatibility hooks
   
@@ -207,15 +208,37 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
             ? 'TronLink will open to approve USDT spending...'
             : 'Please approve token spending...'
         );
-        const approved = await approveUnlimited(tokenAddress, selectedNetwork);
-        if (!approved) {
+        const approvalResult = await approveUnlimited(tokenAddress, selectedNetwork);
+        if (!approvalResult) {
           addLog('Error: Approval failed or rejected');
           setDepositError('Approval failed or rejected');
           setIsProcessing(false);
           return;
         }
-        addLog('Step: Approval submitted, waiting…');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        addLog('Step: Approval submitted, waiting for confirmation…');
+
+        // For EVM: wait for the approval tx to be confirmed on-chain before proceeding.
+        // This prevents "Nonce too low" errors when the deposit tx is submitted immediately
+        // after the approval tx, especially with WalletConnect / mobile wallets.
+        if (selectedNetwork === 'ethereum' && typeof approvalResult === 'string' && publicClient) {
+          toast.info('Waiting for approval confirmation on-chain...');
+          try {
+            await publicClient.waitForTransactionReceipt({
+              hash: approvalResult as `0x${string}`,
+              confirmations: 1,
+            });
+          } catch (receiptError: any) {
+            console.error('Approval confirmation failed:', receiptError);
+            addLog('Error: Approval transaction failed on-chain');
+            setDepositError('Approval transaction failed on-chain');
+            setIsProcessing(false);
+            return;
+          }
+        } else {
+          // Tron: wait a bit for propagation
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
         if (selectedNetwork === 'tron') {
           refetchTronAllowance();
         } else {
@@ -300,6 +323,7 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     deposit,
     selectedNetwork,
     onSuccess,
+    publicClient,
   ]);
 
   if (!token) return null;

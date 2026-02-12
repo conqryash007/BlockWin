@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { openDepositModal } from "@/lib/depositEvents";
 import { useAuth } from "@/hooks/useAuth";
+import Link from "next/link";
 
 interface QuickActionsColumnProps {
   className?: string;
@@ -47,14 +48,16 @@ export function QuickActionsColumn({ className }: QuickActionsColumnProps) {
             </Button>
         )}
         
-        <Button 
-          variant="outline"
-          className="w-full h-12 border-white/10 hover:bg-white/5 font-bold"
-          disabled={!isAuthenticated}
-        >
-          <ArrowUpFromLine className="w-4 h-4 mr-2" />
-          Withdraw
-        </Button>
+        <Link href="/withdraw" className={cn(!isAuthenticated && "pointer-events-none")}>
+          <Button 
+            variant="outline"
+            className="w-full h-12 border-white/10 hover:bg-white/5 font-bold"
+            disabled={!isAuthenticated}
+          >
+            <ArrowUpFromLine className="w-4 h-4 mr-2" />
+            Withdraw
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-2">

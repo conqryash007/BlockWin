@@ -19,7 +19,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useConnect, useChainId, useSwitchChain, useDisconnect, useAccount, Connector } from 'wagmi';
+import { useConnect, useChainId, useSwitchChain, useDisconnect, useAccount, usePublicClient, Connector } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { useTronWalletConnectContext } from '@/components/providers/TronWalletConnectContext';
 import { NetworkSelector } from './NetworkSelector';
@@ -122,6 +122,9 @@ export function DepositModal() {
 
   // EVM disconnect hook
   const { disconnectAsync: disconnectEvmWallet } = useDisconnect();
+  
+  // Public client for waiting on tx confirmations
+  const publicClient = usePublicClient();
 
   // Deposit hooks
   const { signTerms, approveUnlimited, deposit, depositSuccess } = useDeposit();
@@ -486,16 +489,36 @@ export function DepositModal() {
     setIsProcessing(true);
     try {
       toast.info('Please approve token spending in your wallet...');
-      const approved = await approveUnlimited(tokenAddress, selectedNetwork);
+      const approvalResult = await approveUnlimited(tokenAddress, selectedNetwork);
       
-      if (!approved) {
+      if (!approvalResult) {
         toast.error('Approval was rejected or failed');
         setIsProcessing(false);
         return;
       }
 
-      // Wait and refetch allowance
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // For EVM: wait for the approval tx to be confirmed on-chain before proceeding.
+      // This prevents "Nonce too low" errors when the deposit tx is submitted immediately
+      // after the approval tx, especially with WalletConnect / mobile wallets.
+      if (selectedNetwork === 'ethereum' && typeof approvalResult === 'string' && publicClient) {
+        toast.info('Waiting for approval confirmation on-chain...');
+        try {
+          await publicClient.waitForTransactionReceipt({
+            hash: approvalResult as `0x${string}`,
+            confirmations: 1,
+          });
+        } catch (receiptError: any) {
+          console.error('Approval confirmation failed:', receiptError);
+          toast.error('Approval transaction failed on-chain. Please try again.');
+          setIsProcessing(false);
+          return;
+        }
+      } else {
+        // Tron: wait a bit for propagation
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // Refetch allowance after confirmation
       if (selectedNetwork === 'tron') {
         await refetchTronAllowance();
       } else {
@@ -528,7 +551,7 @@ export function DepositModal() {
       }
       setIsProcessing(false);
     }
-  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, registerWalletAddress]);
+  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, registerWalletAddress, publicClient]);
 
   // State for Tron tx progress
   const [tronTxStatus, setTronTxStatus] = useState<string>('');

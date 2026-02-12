@@ -19,6 +19,7 @@ import {
   Menu,
   LayoutDashboard,
   Wallet,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -175,6 +176,33 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
           })}
         </div>
       </ScrollArea>
+
+      {/* Withdraw Button */}
+      <div className={cn("px-3 pb-2", isCollapsed && !isMobile && "px-2")}>
+        <Link
+          href="/withdraw"
+          className={cn(
+            "group relative flex items-center w-full p-3 rounded-xl transition-all duration-150 ease-out overflow-hidden",
+            "bg-gradient-to-r from-orange-500/10 to-transparent border border-orange-500/20 hover:border-orange-500/40 hover:shadow-[0_0_15px_rgba(249,115,22,0.15)]",
+            isCollapsed && !isMobile ? "justify-center px-0" : "px-4"
+          )}
+        >
+          <div className={cn("relative z-10 flex items-center", isCollapsed && !isMobile ? "justify-center" : "")}>
+            <ArrowUpFromLine
+              className={cn(
+                "h-5 w-5 text-orange-400 transition-all duration-150 group-hover:scale-110 group-hover:drop-shadow-[0_0_8px_rgba(249,115,22,0.5)]",
+                !isCollapsed && !isMobile && "mr-3",
+                isMobile && "mr-3"
+              )}
+            />
+            {(!isCollapsed || isMobile) && (
+              <span className="font-semibold text-sm text-orange-400 group-hover:text-orange-300 transition-colors duration-150">
+                Withdraw
+              </span>
+            )}
+          </div>
+        </Link>
+      </div>
 
       {/* Social Links */}
       <div className={cn("px-4 py-3 border-t border-white/5", isCollapsed && !isMobile && "px-2")}>

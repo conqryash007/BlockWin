@@ -368,7 +368,7 @@ Timestamp: ${new Date().toISOString()}`;
 
         setApproveHash(hash);
         toast.info('Approval submitted. Waiting for confirmation...');
-        return true;
+        return hash; // Return hash so callers can wait for on-chain confirmation
       } catch (error: any) {
         console.error('Approval error:', error);
         toast.error(error.shortMessage || error.message || 'Approval failed');
