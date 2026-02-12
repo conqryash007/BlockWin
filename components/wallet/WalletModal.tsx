@@ -25,6 +25,8 @@ interface WalletModalProps {
   onConnect?: () => void;
   /** When true, skip authentication checks and only handle wallet connection (used in admin screens) */
   walletOnly?: boolean;
+  /** Pre-select a network so the modal skips the network selection step */
+  defaultNetwork?: 'ethereum' | 'tron' | null;
 }
 
 const getWalletStyle = (name: string) => {
@@ -57,8 +59,8 @@ const getWalletStyle = (name: string) => {
 
 
 
-export function WalletModal({ open, onOpenChange, isConnected, walletOnly = false }: WalletModalProps) {
-  const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(null);
+export function WalletModal({ open, onOpenChange, isConnected, walletOnly = false, defaultNetwork = null }: WalletModalProps) {
+  const [selectedNetwork, setSelectedNetwork] = useState<'ethereum' | 'tron' | null>(defaultNetwork);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [isWaitingForWalletConnect, setIsWaitingForWalletConnect] = useState(false);
   const { connectors, connect, isPending } = useConnect();
@@ -148,6 +150,14 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
   const activeChain = getActiveChain();
   const isWrongNetwork = isConnected && chainId !== activeChain.id;
 
+  // Sync selectedNetwork when defaultNetwork or modal open state changes
+  useEffect(() => {
+    if (open && defaultNetwork) {
+      setSelectedNetwork(defaultNetwork);
+      if (defaultNetwork === 'tron') setIncludeTronWalletConnect(true);
+    }
+  }, [open, defaultNetwork]);
+
   // Reset state when modal closes
   const handleOpenChange = (newOpen: boolean) => {
     // Don't close the modal if we're waiting for WalletConnect to complete
@@ -157,7 +167,7 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
     }
     
     if (!newOpen) {
-      setSelectedNetwork(null);
+      setSelectedNetwork(defaultNetwork);
       setConnectingId(null);
       setIsWaitingForWalletConnect(false);
     }
