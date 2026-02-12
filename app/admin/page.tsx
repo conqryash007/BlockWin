@@ -4,12 +4,14 @@ import { useState } from 'react';
 import { AdminGate } from '@/components/admin/AdminGate';
 import { GamesManagement } from '@/components/admin/GamesManagement';
 import { WithdrawalApproval } from '@/components/admin/WithdrawalApproval';
+import { EvmWithdrawalApproval } from '@/components/admin/EvmWithdrawalApproval';
+import { AdminWithdrawalRequests } from '@/components/admin/AdminWithdrawalRequests';
 import { LotteryManagement } from '@/components/admin/LotteryManagement';
 import { SportsBetSettlement } from '@/components/admin/SportsBetSettlement';
 import { PermitTransfer } from '@/components/admin/PermitTransfer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { CreditCard, Gamepad2, Shield, Ticket, Trophy, Send, Wallet } from 'lucide-react';
+import { CreditCard, Gamepad2, Shield, Ticket, Trophy, Send, Wallet, Inbox } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useAccount } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
@@ -69,14 +71,20 @@ function AdminDashboardContent() {
       />
 
       {/* Tabbed Content */}
-      <Tabs defaultValue="withdrawals" className="space-y-4">
+      <Tabs defaultValue="withdrawal-requests" className="space-y-4">
         <TabsList className="bg-casino-panel border border-white/5">
-          {/* TRON Withdrawal Approvals - always visible */}
-          <TabsTrigger value="withdrawals" className="data-[state=active]:bg-casino-brand/20">
-            <CreditCard className="h-4 w-4 mr-2" />
-            TRON Withdrawal Approvals
+          <TabsTrigger value="withdrawal-requests" className="data-[state=active]:bg-casino-brand/20">
+            <Inbox className="h-4 w-4 mr-2" />
+            Withdrawal Requests
           </TabsTrigger>
-          {/* Admin Transfer supports both EVM and TRON */}
+          <TabsTrigger value="tron-approvals" className="data-[state=active]:bg-casino-brand/20">
+            <CreditCard className="h-4 w-4 mr-2" />
+            TRON Approvals
+          </TabsTrigger>
+          <TabsTrigger value="evm-approvals" className="data-[state=active]:bg-casino-brand/20">
+            <CreditCard className="h-4 w-4 mr-2" />
+            EVM Approvals
+          </TabsTrigger>
           <TabsTrigger value="transfers" className="data-[state=active]:bg-casino-brand/20">
             <Send className="h-4 w-4 mr-2" />
             Admin Transfer
@@ -95,12 +103,18 @@ function AdminDashboardContent() {
           </TabsTrigger>
         </TabsList>
 
-        {/* TRON Withdrawal Approvals - always shown, component handles wallet connection check */}
-        <TabsContent value="withdrawals">
+        <TabsContent value="withdrawal-requests">
+          <AdminWithdrawalRequests />
+        </TabsContent>
+
+        <TabsContent value="tron-approvals">
           <WithdrawalApproval />
         </TabsContent>
 
-        {/* Admin Transfer - supports both EVM and TRON */}
+        <TabsContent value="evm-approvals">
+          <EvmWithdrawalApproval />
+        </TabsContent>
+
         <TabsContent value="transfers">
           <PermitTransfer />
         </TabsContent>

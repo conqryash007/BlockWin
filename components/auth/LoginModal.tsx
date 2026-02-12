@@ -57,11 +57,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               disabled={loading}
               className="w-full bg-casino-brand text-black hover:bg-casino-brand/90 font-bold h-12 text-base shadow-[0_0_20px_rgba(0,255,163,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(0,255,163,0.5)]"
             >
-              {loading ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <FcGoogle className="mr-2 h-6 w-6" />
-              )}
+              {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : ""}
               Login/Signup
             </Button>
           </div>
