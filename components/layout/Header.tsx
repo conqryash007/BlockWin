@@ -232,7 +232,7 @@ export function Header() {
              disabled={loading}
              className="bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_15px_rgba(0,255,163,0.4)] font-bold gap-2 transition-all hover:-translate-y-0.5"
           >
-             Login
+             Login/Signup
           </Button>
         )}
       </div>

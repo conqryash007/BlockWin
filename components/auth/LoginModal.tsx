@@ -49,7 +49,7 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               ) : (
                 <FcGoogle className="mr-2 h-6 w-6" />
               )}
-              Login with Google
+              Login/Signup using Google
             </Button>
           </div>
           
