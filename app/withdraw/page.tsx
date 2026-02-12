@@ -392,6 +392,7 @@ export default function WithdrawPage() {
         open={walletModalOpen}
         onOpenChange={setWalletModalOpen}
         isConnected={!!evmAddress}
+        walletOnly
       />
     </div>
   );
