@@ -16,6 +16,7 @@ import {
   ChevronRight,
   AlertCircle,
   Info,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeposit, useTokenBalance, useTokenAllowance } from '@/hooks/useDeposit';
@@ -317,46 +318,60 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
   if (isSuccess) {
     return (
       <div className="flex flex-col items-center justify-center py-8">
-        <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
-          <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-        </div>
-        <h3 className="text-xl font-bold text-emerald-400">Deposit Submitted!</h3>
-        <p className="text-muted-foreground mt-2 text-center">
-          Your deposit of <span className="text-white font-bold">{amount} {token.symbol}</span> has been submitted.
-        </p>
-
-        {/* EVM: Balance update notice */}
-        {selectedNetwork === 'ethereum' && (
-          <div className="mt-4 w-full p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <AlertCircle className="w-5 h-5 text-yellow-500" />
-              <span className="text-sm font-bold text-yellow-400">Pending Confirmation</span>
+        {selectedNetwork === 'ethereum' ? (
+          <>
+            <div className="w-20 h-20 rounded-full bg-blue-500/20 flex items-center justify-center mb-4 animate-pulse">
+              <Clock className="w-10 h-10 text-blue-400" />
             </div>
-            <p className="text-sm text-yellow-200/80">
-              Your balance will be updated once the transaction is confirmed on the blockchain. This usually takes a few minutes.
-            </p>
-          </div>
-        )}
-        
-        {/* Welcome Bonus Credited Message */}
-        {bonusCredited?.credited && (
-          <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-casino-brand/20 via-emerald-500/20 to-casino-brand/20 border border-casino-brand/30 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <span className="text-2xl">🎁</span>
-              <span className="text-lg font-bold text-casino-brand">Welcome Bonus!</span>
+            <h3 className="text-xl font-bold text-blue-400">Hang Tight</h3>
+            <div className="mt-4 w-full p-5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-center">
+              <p className="text-sm text-blue-200/90">
+                Your funds are on the way. This usually takes a few mins.
+              </p>
             </div>
-            <p className="text-white">
-              <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
-                ${bonusCredited.amount}
-              </span>
-              <span className="ml-2 text-muted-foreground">has been credited to your account!</span>
+            {bonusCredited?.credited && (
+              <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-casino-brand/20 via-emerald-500/20 to-casino-brand/20 border border-casino-brand/30 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <span className="text-2xl">🎁</span>
+                  <span className="text-lg font-bold text-casino-brand">Welcome Bonus!</span>
+                </div>
+                <p className="text-white">
+                  <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
+                    ${bonusCredited.amount}
+                  </span>
+                  <span className="ml-2 text-muted-foreground">has been credited to your account!</span>
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            </div>
+            <h3 className="text-xl font-bold text-emerald-400">Deposit Submitted!</h3>
+            <p className="text-muted-foreground mt-2 text-center">
+              Your deposit of <span className="text-white font-bold">{amount} {token.symbol}</span> has been submitted.
             </p>
-          </div>
+            {bonusCredited?.credited && (
+              <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-casino-brand/20 via-emerald-500/20 to-casino-brand/20 border border-casino-brand/30 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <span className="text-2xl">🎁</span>
+                  <span className="text-lg font-bold text-casino-brand">Welcome Bonus!</span>
+                </div>
+                <p className="text-white">
+                  <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-casino-brand to-emerald-400">
+                    ${bonusCredited.amount}
+                  </span>
+                  <span className="ml-2 text-muted-foreground">has been credited to your account!</span>
+                </p>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground mt-3">
+              Balance will update after blockchain confirmation.
+            </p>
+          </>
         )}
-        
-        <p className="text-sm text-muted-foreground mt-3">
-          Balance will update after blockchain confirmation.
-        </p>
         {onClose && (
           <Button 
             onClick={onClose}

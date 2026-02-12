@@ -16,6 +16,7 @@ import {
   Smartphone,
   Globe,
   AlertCircle,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useConnect, useChainId, useSwitchChain, useDisconnect, useAccount, Connector } from 'wagmi';
@@ -780,33 +781,43 @@ export function DepositModal() {
         onInteractOutside={preventOutsideDismiss}
       >
           <div className="flex flex-col items-center justify-center py-8">
-            <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-            </div>
-            <h3 className="text-xl font-bold text-emerald-400">Deposit Submitted!</h3>
-            <p className="text-muted-foreground mt-2 text-center">
-              Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been submitted.
-              {bonusCredited.credited && (
-                <>
-                  <br />
-                  <span className="text-emerald-400 font-bold block mt-1">
-                    + ${bonusCredited.amount} Welcome Bonus Applied!
-                  </span>
-                </>
-              )}
-            </p>
-
-            {/* EVM: Balance update notice */}
-            {selectedNetwork === 'ethereum' && (
-              <div className="mt-4 w-full p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <AlertCircle className="w-5 h-5 text-yellow-500" />
-                  <span className="text-sm font-bold text-yellow-400">Pending Confirmation</span>
+            {selectedNetwork === 'ethereum' ? (
+              <>
+                <div className="w-20 h-20 rounded-full bg-blue-500/20 flex items-center justify-center mb-4 animate-pulse">
+                  <Clock className="w-10 h-10 text-blue-400" />
                 </div>
-                <p className="text-sm text-yellow-200/80">
-                  Your balance will be updated once the transaction is confirmed on the blockchain. This usually takes a few minutes.
+                <h3 className="text-xl font-bold text-blue-400">Hang Tight</h3>
+                <div className="mt-4 w-full p-5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-center">
+                  <p className="text-sm text-blue-200/90">
+                    Your funds are on the way. This usually takes a few mins.
+                  </p>
+                </div>
+                {bonusCredited.credited && (
+                  <p className="text-muted-foreground mt-3 text-center">
+                    <span className="text-emerald-400 font-bold block mt-1">
+                      + ${bonusCredited.amount} Welcome Bonus Applied!
+                    </span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-pulse">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+                </div>
+                <h3 className="text-xl font-bold text-emerald-400">Deposit Submitted!</h3>
+                <p className="text-muted-foreground mt-2 text-center">
+                  Your deposit of <span className="text-white font-bold">{amount} {token?.symbol}</span> has been submitted.
+                  {bonusCredited.credited && (
+                    <>
+                      <br />
+                      <span className="text-emerald-400 font-bold block mt-1">
+                        + ${bonusCredited.amount} Welcome Bonus Applied!
+                      </span>
+                    </>
+                  )}
                 </p>
-              </div>
+              </>
             )}
             
             {/* Welcome Bonus Display */}
