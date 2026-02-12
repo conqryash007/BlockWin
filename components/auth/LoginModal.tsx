@@ -1,6 +1,11 @@
 "use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,16 +29,24 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               <span className="font-bold text-black text-3xl">B</span>
             </div>
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white tracking-tight">BLOCKWIN</h2>
-              <p className="text-muted-foreground text-sm mt-1">Next Gen Crypto Casino</p>
+              <h2 className="text-2xl font-bold text-white tracking-tight">
+                BLOCKWIN
+              </h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Next Gen Crypto Casino
+              </p>
             </div>
           </div>
 
           {/* Connect CTA */}
           <div className="w-full space-y-4">
             <div className="bg-white/5 border border-white/5 rounded-xl p-4 text-center">
-              <p className="text-sm font-medium text-white/90">Connect to this website</p>
-              <p className="text-xs text-muted-foreground mt-1">Sign in securely to start playing</p>
+              <p className="text-sm font-medium text-white/90">
+                Connect to this website
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Sign in securely to start playing
+              </p>
             </div>
 
             <Button
@@ -49,14 +62,14 @@ export function LoginModal({ open, onOpenChange }: LoginModalProps) {
               ) : (
                 <FcGoogle className="mr-2 h-6 w-6" />
               )}
-              Login/Signup using Google
+              Login/Signup
             </Button>
           </div>
-          
+
           <div className="text-center">
-             <p className="text-[10px] text-muted-foreground/60">
-                By logging in, you agree to our Terms of Service & Privacy Policy.
-             </p>
+            <p className="text-[10px] text-muted-foreground/60">
+              By logging in, you agree to our Terms of Service & Privacy Policy.
+            </p>
           </div>
         </div>
       </DialogContent>
