@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid network. Use ethereum or tron.' }, { status: 400 });
     }
 
-    // Validate user owns this wallet (wallet_addresses or legacy users.wallet_address)
+    // Validate user owns this wallet via wallet_addresses table
     const normalizedAddress = net === 'ethereum' ? String(walletAddress).toLowerCase() : String(walletAddress);
 
     const { data: walletRows } = await supabaseAdmin
@@ -45,15 +45,7 @@ export async function POST(request: NextRequest) {
       );
 
     if (!ownsWallet) {
-      const { data: u } = await supabaseAdmin
-        .from('users')
-        .select('wallet_address')
-        .eq('id', userId)
-        .single();
-      const legacyAddr = net === 'ethereum' ? (u?.wallet_address ?? '').toLowerCase() : (u?.wallet_address ?? '');
-      if (!legacyAddr || legacyAddr !== normalizedAddress) {
-        return NextResponse.json({ error: 'Wallet address does not belong to your account' }, { status: 403 });
-      }
+      return NextResponse.json({ error: 'Wallet address does not belong to your account' }, { status: 403 });
     }
 
     const requestAmount = Number(amount);
