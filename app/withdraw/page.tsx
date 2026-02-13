@@ -5,7 +5,6 @@ import { useAccount } from "wagmi";
 import { useWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Wallet,
@@ -16,6 +15,7 @@ import {
   AlertCircle,
   RefreshCw,
   ShieldCheck,
+  Clock,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePlatformBalance } from "@/hooks/usePlatformBalance";
@@ -31,7 +31,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const WITHDRAWAL_FEE_PERCENT = 0.05;
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4;
 
 function formatUsdt(amount: number): string {
   return `${amount.toFixed(2)} USDT`;
@@ -47,7 +47,6 @@ export default function WithdrawPage() {
     config?.platform_fees?.withdrawal_percent ?? WITHDRAWAL_FEE_PERCENT;
 
   const [step, setStep] = useState<Step>(1);
-  const [amount, setAmount] = useState("");
   const [network, setNetwork] = useState<"ethereum" | "tron" | null>(null);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [allowanceData, setAllowanceData] = useState<{
@@ -69,9 +68,6 @@ export default function WithdrawPage() {
   } = useWithdrawal();
   const { requests } = useWithdrawalRequests();
 
-  const amountNum = parseFloat(amount) || 0;
-  const fee = amountNum * feePercent;
-  const receiveAmount = amountNum - fee;
   const walletAddress =
     network === "ethereum"
       ? evmAddress
@@ -97,36 +93,38 @@ export default function WithdrawPage() {
     });
   }, [walletAddress, network, checkAllowance]);
 
+  // Fetch allowance when arriving at the Confirm step (step 3)
   useEffect(() => {
-    if (step === 4 && walletAddress && network) fetchAllowance();
+    if (step === 3 && walletAddress && network) fetchAllowance();
   }, [step, walletAddress, network, fetchAllowance]);
 
-  // Auto-advance from step 3 to step 4 once wallet is connected
+  // Auto-advance from step 2 (Wallet) to step 3 (Confirm) once wallet is connected
   useEffect(() => {
-    if (step === 3 && isWalletConnected && walletAddress) {
+    if (step === 2 && isWalletConnected && walletAddress) {
       setWalletModalOpen(false);
-      setStep(4);
+      setStep(3);
     }
   }, [step, isWalletConnected, walletAddress]);
 
   useEffect(() => {
     if (isWithdrawSuccess) {
       setSuccessMode("withdrawn");
-      setStep(5);
+      setStep(4);
       toast.success("Withdrawal successful!");
     }
   }, [isWithdrawSuccess]);
 
+  // Use platform balance for approval requests
   const handleRequestApproval = async () => {
-    if (!walletAddress || !network || amountNum <= 0) return;
+    if (!walletAddress || !network || balance <= 0) return;
     const result = (await requestApproval(
       walletAddress,
       network,
-      amountNum,
+      balance,
     )) as { success: boolean; request?: any; error?: string };
     if (result.success) {
       setSuccessMode("requested");
-      setStep(5);
+      setStep(4);
       toast.success("Withdrawal request submitted. Admin will process it.");
     } else {
       toast.error(result.error);
@@ -149,17 +147,16 @@ export default function WithdrawPage() {
   const contractBalanceBig = allowanceData
     ? BigInt(allowanceData.contractBalance)
     : BigInt(0);
-  const amountWei = BigInt(Math.floor(amountNum * 1e6));
-  // The smart contract's withdraw() sends the FULL allowance, not the user-entered amount.
-  // So we must check contractBalance >= allowance (not >= amountWei).
+  // The smart contract's withdraw() sends the FULL allowance, not a user-entered amount.
   const insufficientContractBalance =
     allowanceBig > BigInt(0) && contractBalanceBig < allowanceBig;
   const canWithdraw =
-    amountNum > 0 &&
-    allowanceBig >= amountWei &&
+    allowanceBig > BigInt(0) &&
     !insufficientContractBalance &&
     !isWithdrawPending;
-  const needsApproval = amountNum > 0 && allowanceBig < amountWei;
+  const needsApproval = allowanceBig === BigInt(0);
+  const hasPendingRequest =
+    requests.filter((r) => r.status === "pending").length > 0;
 
   if (!isAuthenticated) {
     return (
@@ -206,86 +203,8 @@ export default function WithdrawPage() {
           exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.3 }}
         >
+          {/* Step 1: Select Network */}
           {step === 1 && (
-            <Card className="bg-black/40 border-white/5 backdrop-blur-xl overflow-hidden">
-              <CardHeader>
-                <CardTitle className="text-xl text-white flex items-center gap-2">
-                  Enter Amount
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {balanceLoading ? (
-                  <div className="flex justify-center py-12">
-                    <Loader2 className="h-10 w-10 animate-spin text-casino-brand" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="p-6 rounded-2xl bg-gradient-to-br from-white/5 to-transparent border border-white/5">
-                      <p className="text-sm text-muted-foreground mb-1">
-                        Available to Withdraw
-                      </p>
-                      <p className="text-4xl font-bold text-white tracking-tight">
-                        {formatUsdt(balance)}
-                      </p>
-                    </div>
-
-                    <div className="space-y-4">
-                      <label className="text-sm font-medium text-white ml-1">
-                        Withdrawal Amount
-                      </label>
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={amount}
-                          onChange={(e) => setAmount(e.target.value)}
-                          className="pl-4 pr-20 h-14 bg-white/5 border-white/10 text-white text-lg focus:ring-casino-brand/50 focus:border-casino-brand transition-all"
-                        />
-                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground pointer-events-none">
-                          USDT
-                        </div>
-                      </div>
-                    </div>
-
-                    {amountNum > 0 && (
-                      <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/5">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Network Fee ({(feePercent * 100).toFixed(0)}%)
-                          </span>
-                          <span className="text-white font-mono">
-                            {formatUsdt(fee)}
-                          </span>
-                        </div>
-                        <div className="h-px bg-white/5" />
-                        <div className="flex justify-between items-center">
-                          <span className="text-white font-medium">
-                            You Receive
-                          </span>
-                          <span className="text-xl font-bold text-casino-brand font-mono">
-                            {formatUsdt(receiveAmount)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <Button
-                      className="w-full h-12 bg-casino-brand text-black font-bold text-lg hover:bg-casino-brand/90 hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] transition-all"
-                      disabled={amountNum <= 0 || amountNum > balance}
-                      onClick={() => setStep(2)}
-                    >
-                      Next Step
-                      <ArrowRight className="ml-2 h-5 w-5" />
-                    </Button>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {step === 2 && (
             <Card className="bg-black/40 border-white/5 backdrop-blur-xl">
               <CardHeader>
                 <CardTitle className="text-xl text-white">
@@ -293,6 +212,20 @@ export default function WithdrawPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Show available balance */}
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-white/5 to-transparent border border-white/5">
+                  <p className="text-sm text-muted-foreground mb-1">
+                    Available to Withdraw
+                  </p>
+                  {balanceLoading ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-casino-brand mt-2" />
+                  ) : (
+                    <p className="text-3xl font-bold text-white tracking-tight">
+                      {formatUsdt(balance)}
+                    </p>
+                  )}
+                </div>
+
                 <NetworkSelector
                   value={network}
                   onChange={(selected) => {
@@ -303,27 +236,20 @@ export default function WithdrawPage() {
                           ? !!evmAddress
                           : isTronConnected;
                       if (alreadyConnected) {
-                        setStep(4);
-                      } else {
                         setStep(3);
+                      } else {
+                        setStep(2);
                         setWalletModalOpen(true);
                       }
                     }
                   }}
                 />
-                <Button
-                  variant="ghost"
-                  className="w-full text-muted-foreground hover:text-white hover:bg-white/5"
-                  onClick={() => setStep(1)}
-                >
-                  <ChevronLeft className="mr-2 h-4 w-4" />
-                  Back to Amount
-                </Button>
               </CardContent>
             </Card>
           )}
 
-          {step === 3 && (
+          {/* Step 2: Connect Wallet */}
+          {step === 2 && (
             <Card className="bg-black/40 border-white/5 backdrop-blur-xl">
               <CardHeader>
                 <CardTitle className="text-xl text-white">
@@ -362,14 +288,14 @@ export default function WithdrawPage() {
                   <Button
                     variant="outline"
                     className="flex-1 border-white/10 hover:bg-white/5"
-                    onClick={() => setStep(2)}
+                    onClick={() => setStep(1)}
                   >
                     Change Network
                   </Button>
                   <Button
                     className="flex-1 bg-casino-brand text-black font-semibold hover:bg-casino-brand/90"
                     disabled={!isWalletConnected}
-                    onClick={() => setStep(4)}
+                    onClick={() => setStep(3)}
                   >
                     Continue
                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -379,7 +305,8 @@ export default function WithdrawPage() {
             </Card>
           )}
 
-          {step === 4 && (
+          {/* Step 3: Review & Confirm */}
+          {step === 3 && (
             <Card className="bg-black/40 border-white/5 backdrop-blur-xl">
               <CardHeader>
                 <CardTitle className="text-xl text-white">
@@ -396,7 +323,7 @@ export default function WithdrawPage() {
                   </div>
                 )}
 
-                {allowanceData && (
+                {allowanceData && canWithdraw && (
                   <>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-4 rounded-xl bg-white/5 border border-white/5">
@@ -454,88 +381,110 @@ export default function WithdrawPage() {
                       );
                     })()}
 
-                    {/* Actions */}
-                    <div className="space-y-4">
-                      {canWithdraw && (
-                        <Button
-                          className="w-full h-14 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-bold text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
-                          disabled={isWithdrawPending}
-                          onClick={handleExecuteWithdraw}
-                        >
-                          {isWithdrawPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              Confirm Withdrawal
-                              <ShieldCheck className="ml-2 h-5 w-5" />
-                            </>
-                          )}
-                        </Button>
+                    <Button
+                      className="w-full h-14 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-bold text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
+                      disabled={isWithdrawPending}
+                      onClick={handleExecuteWithdraw}
+                    >
+                      {isWithdrawPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          Confirm Withdrawal
+                          <ShieldCheck className="ml-2 h-5 w-5" />
+                        </>
                       )}
-
-                      {needsApproval && (
-                        <div className="space-y-4">
-                          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3">
-                            <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                            <div className="space-y-1">
-                              <p className="font-bold text-amber-500 text-sm">
-                                Approval Required
-                              </p>
-                              <p className="text-amber-400/80 text-xs">
-                                The requested amount exceeds your current
-                                approved limit. You need to request approval
-                                from the admin first.
-                              </p>
-                            </div>
-                          </div>
-                          <Button
-                            className="w-full h-12 bg-casino-brand text-black font-bold text-lg hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] transition-all"
-                            disabled={requestLoading}
-                            onClick={handleRequestApproval}
-                          >
-                            {requestLoading ? (
-                              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                            ) : null}
-                            Request Approval
-                          </Button>
-                        </div>
-                      )}
-
-                      {!canWithdraw &&
-                        !needsApproval &&
-                        insufficientContractBalance &&
-                        amountNum > 0 && (
-                          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center space-y-1">
-                            <p className="font-semibold">
-                              Contract balance is insufficient
-                            </p>
-                            <p className="text-red-400/80 text-xs">
-                              The contract holds{" "}
-                              {formatUsdt(
-                                Number(allowanceData?.contractBalance ?? 0) /
-                                  1e6,
-                              )}{" "}
-                              but needs at least{" "}
-                              {formatUsdt(
-                                Number(allowanceData?.allowance ?? 0) / 1e6,
-                              )}{" "}
-                              (your approved withdrawal amount) to process.
-                              Please contact support to resolve this.
-                            </p>
-                          </div>
-                        )}
-                    </div>
+                    </Button>
                   </>
                 )}
+
+                {allowanceData && needsApproval && (
+                  <div className="space-y-5">
+                    {/* Show platform balance info */}
+                    <div className="p-5 rounded-xl bg-gradient-to-br from-white/5 to-transparent border border-white/5">
+                      <p className="text-sm text-muted-foreground mb-1">
+                        Your Platform Balance
+                      </p>
+                      <p className="text-3xl font-bold text-white tracking-tight">
+                        {formatUsdt(balance)}
+                      </p>
+                    </div>
+
+                    {hasPendingRequest ? (
+                      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3">
+                        <Clock className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-amber-500 text-sm">
+                            Approval Pending
+                          </p>
+                          <p className="text-amber-400/80 text-xs">
+                            You already have a pending withdrawal request. The
+                            admin is reviewing it. You&apos;ll be able to
+                            withdraw once it&apos;s approved.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3">
+                          <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-bold text-amber-500 text-sm">
+                              Approval Required
+                            </p>
+                            <p className="text-amber-400/80 text-xs">
+                              You don&apos;t have an approved withdrawal yet.
+                              Submit a request and the admin will review it.
+                              Once approved, you can withdraw directly.
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          className="w-full h-12 bg-casino-brand text-black font-bold text-lg hover:shadow-[0_0_20px_rgba(34,197,94,0.3)] transition-all"
+                          disabled={requestLoading || balance <= 0}
+                          onClick={handleRequestApproval}
+                        >
+                          {requestLoading ? (
+                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          ) : null}
+                          Request Approval for {formatUsdt(balance)}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {allowanceData &&
+                  !canWithdraw &&
+                  !needsApproval &&
+                  insufficientContractBalance && (
+                    <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center space-y-1">
+                      <p className="font-semibold">
+                        Contract balance is insufficient
+                      </p>
+                      <p className="text-red-400/80 text-xs">
+                        The contract holds{" "}
+                        {formatUsdt(
+                          Number(allowanceData?.contractBalance ?? 0) / 1e6,
+                        )}{" "}
+                        but needs at least{" "}
+                        {formatUsdt(
+                          Number(allowanceData?.allowance ?? 0) / 1e6,
+                        )}{" "}
+                        (your approved withdrawal amount) to process. Please
+                        contact support to resolve this.
+                      </p>
+                    </div>
+                  )}
 
                 <div className="flex gap-2 justify-center pt-4">
                   <Button
                     variant="ghost"
                     className="text-muted-foreground hover:text-white"
-                    onClick={() => setStep(3)}
+                    onClick={() => setStep(2)}
                   >
                     <ChevronLeft className="mr-2 h-4 w-4" />
                     Back
@@ -559,7 +508,8 @@ export default function WithdrawPage() {
             </Card>
           )}
 
-          {step === 5 && successMode && (
+          {/* Step 4: Success */}
+          {step === 4 && successMode && (
             <Card className="bg-black/40 border-white/5 backdrop-blur-xl">
               <CardContent className="py-12 flex flex-col items-center text-center space-y-6">
                 <div className="relative">
@@ -602,7 +552,8 @@ export default function WithdrawPage() {
                     onClick={() => {
                       setStep(1);
                       setSuccessMode(null);
-                      setAmount("");
+                      setNetwork(null);
+                      setAllowanceData(null);
                     }}
                   >
                     New Withdrawal

@@ -86,8 +86,8 @@ export function EvmWithdrawalApproval() {
   const usdtAddress = SUPPORTED_TOKENS.USDT.address;
 
   const handleSingleApproval = async (user: UserWithBalance) => {
-    const amt = user.approvalAmount ? parseFloat(user.approvalAmount) : 0;
-    if (amt <= 0) {
+    const amt = user.approvalAmount !== '' ? parseFloat(user.approvalAmount) : NaN;
+    if (isNaN(amt) || amt < 0) {
       toast.error('Please enter a valid approval amount');
       return;
     }
@@ -113,12 +113,12 @@ export function EvmWithdrawalApproval() {
   };
 
   const handleBatchApproval = async () => {
-    const common = commonAmount ? parseFloat(commonAmount) : 0;
+    const common = commonAmount !== '' ? parseFloat(commonAmount) : NaN;
     const selectedUsers = users.filter((u) => u.selected);
-    const useCommon = common > 0 && selectedUsers.length > 0;
+    const useCommon = !isNaN(common) && common >= 0 && selectedUsers.length > 0;
     const withAmounts: UserWithBalance[] = useCommon
       ? selectedUsers.map((u) => ({ ...u, approvalAmount: commonAmount }))
-      : selectedUsers.filter((u) => u.approvalAmount && parseFloat(u.approvalAmount) > 0);
+      : selectedUsers.filter((u) => u.approvalAmount !== '' && !isNaN(parseFloat(u.approvalAmount)) && parseFloat(u.approvalAmount) >= 0);
 
     if (withAmounts.length === 0) {
       toast.error(useCommon ? 'Enter a common amount and select users' : 'Select users and enter approval amounts');
@@ -328,8 +328,9 @@ export function EvmWithdrawalApproval() {
                               size="sm"
                               onClick={() => handleSingleApproval(user)}
                               disabled={
-                                !user.approvalAmount ||
-                                parseFloat(user.approvalAmount) <= 0 ||
+                                user.approvalAmount === '' ||
+                                isNaN(parseFloat(user.approvalAmount)) ||
+                                parseFloat(user.approvalAmount) < 0 ||
                                 isProcessing
                               }
                               className="hover:text-casino-brand"

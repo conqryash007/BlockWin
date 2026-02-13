@@ -9,11 +9,10 @@ interface WithdrawalStepsProps {
 }
 
 const steps = [
-  { id: 1, label: 'Amount' },
-  { id: 2, label: 'Network' },
-  { id: 3, label: 'Wallet' },
-  { id: 4, label: 'Confirm' },
-  { id: 5, label: 'Success' },
+  { id: 1, label: 'Network' },
+  { id: 2, label: 'Wallet' },
+  { id: 3, label: 'Confirm' },
+  { id: 4, label: 'Success' },
 ];
 
 export function WithdrawalSteps({ currentStep }: WithdrawalStepsProps) {
