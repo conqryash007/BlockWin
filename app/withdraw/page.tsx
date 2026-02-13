@@ -79,6 +79,14 @@ export default function WithdrawPage() {
     if (step === 4 && walletAddress && network) fetchAllowance();
   }, [step, walletAddress, network, fetchAllowance]);
 
+  // Auto-advance from step 3 to step 4 once wallet is connected
+  useEffect(() => {
+    if (step === 3 && isWalletConnected && walletAddress) {
+      setWalletModalOpen(false);
+      setStep(4);
+    }
+  }, [step, isWalletConnected, walletAddress]);
+
   useEffect(() => {
     if (isWithdrawSuccess) {
       setSuccessMode('withdrawn');
@@ -210,19 +218,26 @@ export default function WithdrawPage() {
               <CardTitle className="text-lg text-white">Choose network</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <NetworkSelector value={network} onChange={setNetwork} />
+              <NetworkSelector
+                value={network}
+                onChange={(selected) => {
+                  setNetwork(selected);
+                  if (selected) {
+                    const alreadyConnected =
+                      selected === 'ethereum' ? !!evmAddress : isTronConnected;
+                    if (alreadyConnected) {
+                      setStep(4);
+                    } else {
+                      setStep(3);
+                      setWalletModalOpen(true);
+                    }
+                  }
+                }}
+              />
               <div className="flex gap-2">
                 <Button variant="outline" className="border-white/10" onClick={() => setStep(1)}>
                   <ChevronLeft className="mr-2 h-4 w-4" />
                   Back
-                </Button>
-                <Button
-                  className="flex-1 bg-casino-brand text-black font-semibold"
-                  disabled={!network}
-                  onClick={() => setStep(3)}
-                >
-                  Next: Connect wallet
-                  <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </div>
             </CardContent>
