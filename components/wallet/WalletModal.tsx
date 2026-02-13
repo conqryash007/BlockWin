@@ -243,15 +243,6 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
   if (isAuthenticated && open && !walletOnly) {
     return null;
   }
-  
-
-
-  // Note: Modal stays open after authentication to allow immediate deposit.
-  // User can close it manually or proceed to deposit.
-  // Auto-login is now handled in useAuth hook globally, so no need for it here.
-
-  // Main deposit handler - chains all wallet popups
-
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -351,7 +342,8 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                   } catch (err: any) {
                                     console.error(`[WalletModal] Connection failed:`, err);
                                     clearWalletConnectWaiting();
-                               }}
+                                  }
+                                }}
                                className={cn(
                                    "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
                                    border,
