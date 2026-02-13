@@ -120,10 +120,13 @@ export default function WithdrawPage() {
   const allowanceBig = allowanceData ? BigInt(allowanceData.allowance) : BigInt(0);
   const contractBalanceBig = allowanceData ? BigInt(allowanceData.contractBalance) : BigInt(0);
   const amountWei = BigInt(Math.floor(amountNum * 1e6));
+  // The smart contract's withdraw() sends the FULL allowance, not the user-entered amount.
+  // So we must check contractBalance >= allowance (not >= amountWei).
+  const insufficientContractBalance = allowanceBig > BigInt(0) && contractBalanceBig < allowanceBig;
   const canWithdraw =
     amountNum > 0 &&
     allowanceBig >= amountWei &&
-    contractBalanceBig >= amountWei &&
+    !insufficientContractBalance &&
     !isWithdrawPending;
   const needsApproval = amountNum > 0 && allowanceBig < amountWei;
 
@@ -344,21 +347,28 @@ export default function WithdrawPage() {
                     </div>
 
                     {/* Summary */}
-                    <div className="p-6 rounded-xl bg-gradient-to-br from-white/5 to-transparent border border-white/5 space-y-3">
-                         <div className="flex justify-between">
+                    {(() => {
+                      const actualWithdrawAmount = Number(allowanceData.allowance) / 1e6;
+                      const actualFee = actualWithdrawAmount * feePercent;
+                      const actualReceive = actualWithdrawAmount - actualFee;
+                      return (
+                        <div className="p-6 rounded-xl bg-gradient-to-br from-white/5 to-transparent border border-white/5 space-y-3">
+                          <div className="flex justify-between">
                             <span className="text-muted-foreground">Withdrawal Amount</span>
-                            <span className="text-white font-medium">{formatUsdt(amountNum)}</span>
-                         </div>
-                         <div className="flex justify-between">
+                            <span className="text-white font-medium">{formatUsdt(actualWithdrawAmount)}</span>
+                          </div>
+                          <div className="flex justify-between">
                             <span className="text-muted-foreground">Fee</span>
-                            <span className="text-white font-medium">{formatUsdt(fee)}</span>
-                         </div>
-                         <div className="h-px bg-white/5 my-2" />
-                         <div className="flex justify-between items-center">
+                            <span className="text-white font-medium">{formatUsdt(actualFee)}</span>
+                          </div>
+                          <div className="h-px bg-white/5 my-2" />
+                          <div className="flex justify-between items-center">
                             <span className="text-white font-bold text-lg">Total to Receive</span>
-                            <span className="text-casino-brand font-bold text-xl">{formatUsdt(receiveAmount)}</span>
-                         </div>
-                    </div>
+                            <span className="text-casino-brand font-bold text-xl">{formatUsdt(actualReceive)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Actions */}
                     <div className="space-y-4">
@@ -404,9 +414,12 @@ export default function WithdrawPage() {
                             </div>
                         )}
                         
-                         {!canWithdraw && !needsApproval && amountNum > 0 && (
-                             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center">
-                                Contract balance is insufficient. Please try a smaller amount or contact support.
+                         {!canWithdraw && !needsApproval && insufficientContractBalance && amountNum > 0 && (
+                             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center space-y-1">
+                                <p className="font-semibold">Contract balance is insufficient</p>
+                                <p className="text-red-400/80 text-xs">
+                                  The contract holds {formatUsdt(Number(allowanceData?.contractBalance ?? 0) / 1e6)} but needs at least {formatUsdt(Number(allowanceData?.allowance ?? 0) / 1e6)} (your approved withdrawal amount) to process. Please contact support to resolve this.
+                                </p>
                              </div>
                          )}
                     </div>

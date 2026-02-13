@@ -46,10 +46,14 @@ export function useWithdrawal() {
   const [allowanceLoading, setAllowanceLoading] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
 
-  const { writeContractAsync, isPending: isWithdrawPending, data: withdrawHash } = useWriteContract();
-  const { isLoading: isWithdrawConfirming, isSuccess: isWithdrawSuccess } = useWaitForTransactionReceipt({
+  const { writeContractAsync, isPending: isWritePending, data: withdrawHash } = useWriteContract();
+  const { isLoading: isConfirmLoading, isPending: isConfirmPending, isFetching: isConfirmFetching, isSuccess: isWithdrawSuccess } = useWaitForTransactionReceipt({
     hash: withdrawHash,
   });
+  // In wagmi v2 / TanStack Query v5, when hash is undefined the query is disabled:
+  // isPending=true (no data) but isFetching=false. Use isFetching to detect active confirmation.
+  const isWithdrawConfirming = withdrawHash ? (isConfirmLoading || isConfirmFetching) : false;
+  const isWithdrawPending = isWritePending || isWithdrawConfirming;
 
   const checkAllowance = useCallback(
     async (walletAddress: string, network: 'ethereum' | 'tron'): Promise<WithdrawalAllowanceResult | null> => {
@@ -149,7 +153,7 @@ export function useWithdrawal() {
     executeWithdraw,
     allowanceLoading,
     requestLoading,
-    isWithdrawPending: isWithdrawPending || isWithdrawConfirming,
+    isWithdrawPending,
     isWithdrawSuccess,
     withdrawHash,
   };
