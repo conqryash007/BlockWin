@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
+export const dynamic = 'force-dynamic';
+
 // TRON configuration - ALWAYS use mainnet for this admin API
 const TRON_CONFIG = {
   mainnet: {
@@ -102,21 +104,8 @@ export async function GET(request: NextRequest) {
       console.error('[TRON] wallet_addresses query error:', walletError);
     }
 
-    // Also fetch from legacy users.wallet_address column as fallback
-    const { data: legacyUsers, error: legacyError } = await supabaseAdmin
-      .from('users')
-      .select('id, wallet_address')
-      .not('wallet_address', 'is', null)
-      .like('wallet_address', 'T%');
-
-    if (legacyError) {
-      console.error('[TRON] Legacy users query error:', legacyError);
-    }
-
-    // Merge both sources, deduplicate by address
+    // Deduplicate by address
     const addressMap = new Map<string, { id: string; wallet_address: string }>();
-
-    // Add wallet_addresses entries first (primary source)
     for (const row of walletRows || []) {
       if (row.address && row.address.startsWith('T')) {
         if (!addressMap.has(row.address)) {
@@ -125,17 +114,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Add legacy users.wallet_address entries (fallback)
-    for (const row of legacyUsers || []) {
-      if (row.wallet_address && row.wallet_address.startsWith('T')) {
-        if (!addressMap.has(row.wallet_address)) {
-          addressMap.set(row.wallet_address, { id: row.id, wallet_address: row.wallet_address });
-        }
-      }
-    }
-
     const users = Array.from(addressMap.values());
-    console.log(`[TRON] Found ${walletRows?.length || 0} from wallet_addresses, ${legacyUsers?.length || 0} from users table, ${users.length} unique`);
+    console.log(`[TRON] Found ${walletRows?.length || 0} from wallet_addresses, ${users.length} unique`);
 
     if (users.length === 0) {
       return NextResponse.json({

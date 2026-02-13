@@ -29,6 +29,12 @@ export function BetslipDrawer() {
   const [isPlacing, setIsPlacing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // Prevent closing the drawer while a bet is being placed
+  const handleOpenChange = (open: boolean) => {
+    if (!open && isPlacing) return;
+    setIsOpen(open);
+  };
+
   const handlePlaceBet = async () => {
     // Check authentication
     if (!isAuthenticated || !session?.access_token) {
@@ -119,7 +125,7 @@ export function BetslipDrawer() {
   };
 
   return (
-    <Sheet open={isOpen} onOpenChange={setIsOpen}>
+    <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent className="w-full sm:w-[400px] bg-[#0d0f14] border-l border-[#1a1d24] p-0 flex flex-col">
         {/* Header */}
         <SheetHeader className="p-4 border-b border-[#1a1d24] bg-[#0a0c10]">

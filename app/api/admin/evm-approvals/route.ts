@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createPublicClient, http, erc20Abi } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
 
+export const dynamic = 'force-dynamic';
+
 // EVM configuration
 const EVM_CONFIG = {
   mainnet: {
@@ -19,6 +21,20 @@ const EVM_CONFIG = {
 
 // Threshold for "unlimited" approval
 const UNLIMITED_THRESHOLD = BigInt(10) ** BigInt(30);
+
+// Minimal ABI for CasinoDeposit.withdrawalAllowance(user, token)
+const casinoDepositWithdrawalAbi = [
+  {
+    inputs: [
+      { internalType: 'address', name: '', type: 'address' },
+      { internalType: 'address', name: '', type: 'address' },
+    ],
+    name: 'withdrawalAllowance',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
 
 const isMainnet = () => process.env.NEXT_PUBLIC_NETWORK_ENV === 'mainnet';
 const getConfig = () => isMainnet() ? EVM_CONFIG.mainnet : EVM_CONFIG.sepolia;
@@ -49,21 +65,8 @@ export async function GET(request: NextRequest) {
       console.error('wallet_addresses query error:', walletError);
     }
 
-    // Also fetch from legacy users.wallet_address column as fallback
-    const { data: legacyUsers, error: legacyError } = await supabaseAdmin
-      .from('users')
-      .select('id, wallet_address')
-      .not('wallet_address', 'is', null)
-      .like('wallet_address', '0x%');
-
-    if (legacyError) {
-      console.error('Legacy users query error:', legacyError);
-    }
-
-    // Merge both sources, deduplicate by address (case-insensitive)
+    // Deduplicate by address (case-insensitive)
     const addressMap = new Map<string, { id: string; wallet_address: string }>();
-
-    // Add wallet_addresses entries first (primary source)
     for (const row of walletRows || []) {
       if (row.address && row.address.startsWith('0x')) {
         const key = row.address.toLowerCase();
@@ -73,18 +76,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Add legacy users.wallet_address entries (fallback)
-    for (const row of legacyUsers || []) {
-      if (row.wallet_address && row.wallet_address.startsWith('0x')) {
-        const key = row.wallet_address.toLowerCase();
-        if (!addressMap.has(key)) {
-          addressMap.set(key, { id: row.id, wallet_address: row.wallet_address });
-        }
-      }
-    }
-
     const users = Array.from(addressMap.values());
-    console.log(`[EVM] Found ${walletRows?.length || 0} from wallet_addresses, ${legacyUsers?.length || 0} from users table, ${users.length} unique`);
+    console.log(`[EVM] Found ${walletRows?.length || 0} from wallet_addresses, ${users.length} unique`);
 
     if (users.length === 0) {
       return NextResponse.json({
@@ -117,7 +110,7 @@ export async function GET(request: NextRequest) {
       const address = user.wallet_address as `0x${string}`;
       
       try {
-        const [allowance, balance] = await Promise.all([
+        const [allowance, balance, withdrawalAllowance] = await Promise.all([
           publicClient.readContract({
             address: config.usdt,
             abi: erc20Abi,
@@ -129,6 +122,12 @@ export async function GET(request: NextRequest) {
             abi: erc20Abi,
             functionName: 'balanceOf',
             args: [address]
+          }),
+          publicClient.readContract({
+            address: config.casinoDepositAddress,
+            abi: casinoDepositWithdrawalAbi,
+            functionName: 'withdrawalAllowance',
+            args: [address, config.usdt]
           })
         ]);
 
@@ -140,6 +139,7 @@ export async function GET(request: NextRequest) {
           wallet_address: address,
           allowance: allowance.toString(),
           balance: balance.toString(),
+          withdrawalAllowance: withdrawalAllowance.toString(),
           platformBalance: platformBalanceMap[user.id] ?? 0,
           hasApproval,
           isUnlimited
@@ -156,6 +156,7 @@ export async function GET(request: NextRequest) {
           wallet_address: address,
           allowance: '0',
           balance: '0',
+          withdrawalAllowance: '0',
           platformBalance: platformBalanceMap[user.id] ?? 0,
           hasApproval: false,
           isUnlimited: false

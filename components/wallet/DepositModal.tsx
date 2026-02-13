@@ -802,6 +802,7 @@ export function DepositModal() {
         className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10"
         onPointerDownOutside={preventOutsideDismiss}
         onInteractOutside={preventOutsideDismiss}
+        onEscapeKeyDown={preventOutsideDismiss}
       >
           <div className="flex flex-col items-center justify-center py-8">
             {selectedNetwork === 'ethereum' ? (
@@ -880,6 +881,7 @@ export function DepositModal() {
         className="sm:max-w-[420px] bg-[#0f1115] text-white border-white/10 p-0 overflow-hidden"
         onPointerDownOutside={preventOutsideDismiss}
         onInteractOutside={preventOutsideDismiss}
+        onEscapeKeyDown={preventOutsideDismiss}
       >
         {/* Header */}
         <div className="p-6 pb-0">

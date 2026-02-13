@@ -18,6 +18,7 @@ interface UserWithBalance {
   balance: number;
   usdtBalance: string;
   allowance: string;
+  withdrawalAllowance: string;
   hasApproval: boolean;
   isUnlimited: boolean;
   selected: boolean;
@@ -47,6 +48,7 @@ export function EvmWithdrawalApproval() {
         balance: user.platformBalance ?? 0,
         usdtBalance: user.balance ?? '0',
         allowance: user.allowance ?? '0',
+        withdrawalAllowance: user.withdrawalAllowance ?? '0',
         hasApproval: user.hasApproval ?? false,
         isUnlimited: user.isUnlimited ?? false,
         selected: false,
@@ -242,6 +244,7 @@ export function EvmWithdrawalApproval() {
                     <TableHead>Platform Balance</TableHead>
                     <TableHead>USDT Balance (On-Chain)</TableHead>
                     <TableHead>Approval Status</TableHead>
+                    <TableHead>Approved Withdrawal (USDT)</TableHead>
                     <TableHead>Approval Amount (USDT)</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -249,13 +252,14 @@ export function EvmWithdrawalApproval() {
                 <TableBody>
                   {users.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No EVM users found
                       </TableCell>
                     </TableRow>
                   ) : (
                     users.map((user) => {
                       const allowanceBigInt = BigInt(user.allowance);
+                      const withdrawalAllowanceBigInt = BigInt(user.withdrawalAllowance);
                       const usdtBalanceNum = Number(user.usdtBalance) / 1e6;
                       const formatAmount = (val: bigint | number) => {
                         if (typeof val === 'bigint') {
@@ -302,6 +306,11 @@ export function EvmWithdrawalApproval() {
                             <span className="text-sm font-medium">{formatAmount(usdtBalanceNum)} USDT</span>
                           </TableCell>
                           <TableCell>{approvalBadge}</TableCell>
+                          <TableCell>
+                            <span className="text-sm font-medium">
+                              {formatAmount(withdrawalAllowanceBigInt)} USDT
+                            </span>
+                          </TableCell>
                           <TableCell>
                             <Input
                               type="number"

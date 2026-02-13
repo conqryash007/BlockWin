@@ -3,6 +3,8 @@ import { getAdminFromToken } from '@/lib/game-utils';
 import { getBalance, updateBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
