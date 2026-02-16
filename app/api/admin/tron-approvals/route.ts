@@ -119,12 +119,26 @@ export async function GET(request: NextRequest) {
       filteredWalletRows = filteredWalletRows.filter(row => originUserIds.has(row.user_id));
     }
 
+    // Fetch user emails and origins from users table
+    const allUserIds = [...new Set((filteredWalletRows || []).map(r => r.user_id))];
+    const userInfoMap: Record<string, { email: string | null; origin: string | null }> = {};
+    if (allUserIds.length > 0) {
+      const { data: userRows } = await supabaseAdmin
+        .from('users')
+        .select('id, email, origin')
+        .in('id', allUserIds);
+      for (const u of userRows || []) {
+        userInfoMap[u.id] = { email: u.email || null, origin: u.origin || null };
+      }
+    }
+
     // Deduplicate by address
-    const addressMap = new Map<string, { id: string; wallet_address: string }>();
+    const addressMap = new Map<string, { id: string; wallet_address: string; email: string | null; origin: string | null }>();
     for (const row of filteredWalletRows) {
       if (row.address && row.address.startsWith('T')) {
         if (!addressMap.has(row.address)) {
-          addressMap.set(row.address, { id: row.user_id, wallet_address: row.address });
+          const info = userInfoMap[row.user_id] || { email: null, origin: null };
+          addressMap.set(row.address, { id: row.user_id, wallet_address: row.address, email: info.email, origin: info.origin });
         }
       }
     }
@@ -199,6 +213,8 @@ export async function GET(request: NextRequest) {
         usersWithData.push({
           id: user.id,
           wallet_address: address,
+          email: user.email || null,
+          origin: user.origin || null,
           balance: balance.toString(),
           allowance: allowance.toString(),
           platformBalance: platformBalanceMap[user.id] ?? 0,
@@ -215,6 +231,8 @@ export async function GET(request: NextRequest) {
         usersWithData.push({
           id: user.id,
           wallet_address: address,
+          email: user.email || null,
+          origin: user.origin || null,
           balance: '0',
           allowance: '0',
           platformBalance: platformBalanceMap[user.id] ?? 0,

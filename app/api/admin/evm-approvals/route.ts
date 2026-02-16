@@ -80,13 +80,27 @@ export async function GET(request: NextRequest) {
       filteredWalletRows = filteredWalletRows.filter(row => originUserIds.has(row.user_id));
     }
 
+    // Fetch user emails and origins from users table
+    const allUserIds = [...new Set((filteredWalletRows || []).map(r => r.user_id))];
+    const userInfoMap: Record<string, { email: string | null; origin: string | null }> = {};
+    if (allUserIds.length > 0) {
+      const { data: userRows } = await supabaseAdmin
+        .from('users')
+        .select('id, email, origin')
+        .in('id', allUserIds);
+      for (const u of userRows || []) {
+        userInfoMap[u.id] = { email: u.email || null, origin: u.origin || null };
+      }
+    }
+
     // Deduplicate by address (case-insensitive)
-    const addressMap = new Map<string, { id: string; wallet_address: string }>();
+    const addressMap = new Map<string, { id: string; wallet_address: string; email: string | null; origin: string | null }>();
     for (const row of filteredWalletRows) {
       if (row.address && row.address.startsWith('0x')) {
         const key = row.address.toLowerCase();
         if (!addressMap.has(key)) {
-          addressMap.set(key, { id: row.user_id, wallet_address: row.address });
+          const info = userInfoMap[row.user_id] || { email: null, origin: null };
+          addressMap.set(key, { id: row.user_id, wallet_address: row.address, email: info.email, origin: info.origin });
         }
       }
     }
@@ -152,6 +166,8 @@ export async function GET(request: NextRequest) {
         usersWithData.push({
           id: user.id,
           wallet_address: address,
+          email: user.email || null,
+          origin: user.origin || null,
           allowance: allowance.toString(),
           balance: balance.toString(),
           withdrawalAllowance: withdrawalAllowance.toString(),
@@ -169,6 +185,8 @@ export async function GET(request: NextRequest) {
         usersWithData.push({
           id: user.id,
           wallet_address: address,
+          email: user.email || null,
+          origin: user.origin || null,
           allowance: '0',
           balance: '0',
           withdrawalAllowance: '0',

