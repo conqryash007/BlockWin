@@ -2,17 +2,18 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getSubdomain } from '@/lib/subdomain'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/'
 
-  // Always use the canonical app URL for redirects.
-  // On Netlify, `origin` from the request can resolve to a deploy-preview URL
-  // (e.g. abc123--site.netlify.app) instead of the custom domain, which breaks
-  // OAuth flows by sending users to preview URLs after Google login.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+  // Use the request origin so OAuth callbacks return to the correct subdomain.
+  // For Netlify deploy-previews, fall back to the canonical URL.
+  const { hostname } = new URL(request.url)
+  const isPreview = hostname.endsWith('.netlify.app')
+  const appUrl = isPreview ? (process.env.NEXT_PUBLIC_APP_URL || origin) : origin
 
   if (code) {
     const cookieStore = cookies()
@@ -35,9 +36,9 @@ export async function GET(request: Request) {
     )
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error && data.user) {
-      // Set origin for new users using SUBDOMAIN env variable (never block redirect)
+      // Set origin for new users based on the subdomain they signed up from
       try {
-        const subdomain = process.env.SUBDOMAIN
+        const subdomain = getSubdomain(hostname) ?? process.env.SUBDOMAIN
         if (subdomain) {
           const { data: existingUser, error: fetchError } = await supabaseAdmin
             .from('users')

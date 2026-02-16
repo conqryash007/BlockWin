@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFromToken } from '@/lib/game-utils';
 import { getBalance, updateBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getSubdomain } from '@/lib/subdomain';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
-    const { isAdmin, error: authError } = await getAdminFromToken(authHeader);
+    const requestSubdomain = getSubdomain(request.headers.get('x-subdomain') || new URL(request.url).hostname);
+    const { isAdmin, adminOrigin, error: authError } = await getAdminFromToken(authHeader, requestSubdomain);
     if (!isAdmin || authError) {
       return NextResponse.json({ error: authError || 'Admin access required' }, { status: 403 });
     }
@@ -24,6 +26,20 @@ export async function GET(request: NextRequest) {
 
     if (status) query = query.eq('status', status);
     if (network) query = query.eq('network', network);
+
+    // Filter by origin when admin is scoped to a subdomain
+    if (adminOrigin) {
+      const { data: originUsers } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('origin', adminOrigin);
+      const userIds = (originUsers || []).map(u => u.id);
+      if (userIds.length > 0) {
+        query = query.in('user_id', userIds);
+      } else {
+        return NextResponse.json({ requests: [] });
+      }
+    }
 
     const { data, error } = await query;
 
@@ -43,7 +59,8 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
-    const { isAdmin, error: authError } = await getAdminFromToken(authHeader);
+    const requestSubdomain = getSubdomain(request.headers.get('x-subdomain') || new URL(request.url).hostname);
+    const { isAdmin, error: authError } = await getAdminFromToken(authHeader, requestSubdomain);
     if (!isAdmin || authError) {
       return NextResponse.json({ error: authError || 'Admin access required' }, { status: 403 });
     }

@@ -244,20 +244,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
 
-      // Always use the canonical production URL for OAuth redirects.
-      // NEVER derive a URL from the current hostname — Netlify deploy-preview
-      // and branch-deploy hostnames (e.g. abc123--site.netlify.app) leak into
-      // the redirectTo and Supabase happily redirects there if it's in the
-      // allowed list, breaking the flow for users.
-      // Fallback to window.location.origin ONLY for localhost (dev).
+      // Use the current browser origin so OAuth redirects return to the correct subdomain.
+      // For Netlify deploy-previews, fall back to the canonical production URL.
       const PRODUCTION_URL = 'https://blockwin.space';
-      let baseUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_URL;
+      let baseUrl: string;
 
-      // Allow localhost override for local development only
-      if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-        baseUrl = window.location.origin;
+      if (typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        const isPreview = host.endsWith('.netlify.app');
+        baseUrl = isPreview ? (process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_URL) : window.location.origin;
+      } else {
+        baseUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_URL;
       }
-      console.log('[Auth] OAuth redirectTo baseUrl:', baseUrl, '| NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL || '(not set)');
+      console.log('[Auth] OAuth redirectTo baseUrl:', baseUrl);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',

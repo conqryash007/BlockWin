@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createPublicClient, http, erc20Abi } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
+import { getSubdomain } from '@/lib/subdomain';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,9 @@ export async function GET(request: NextRequest) {
       transport: http(rpcUrl)
     });
     
+    // Determine subdomain scope for filtering
+    const requestSubdomain = getSubdomain(request.headers.get('x-subdomain') || new URL(request.url).hostname);
+
     // Fetch EVM users from wallet_addresses table (primary source)
     const { data: walletRows, error: walletError } = await supabaseAdmin
       .from('wallet_addresses')
@@ -65,9 +69,20 @@ export async function GET(request: NextRequest) {
       console.error('wallet_addresses query error:', walletError);
     }
 
+    // Filter by origin when viewing from a subdomain
+    let filteredWalletRows = walletRows || [];
+    if (requestSubdomain) {
+      const { data: originUsers } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('origin', requestSubdomain);
+      const originUserIds = new Set((originUsers || []).map(u => u.id));
+      filteredWalletRows = filteredWalletRows.filter(row => originUserIds.has(row.user_id));
+    }
+
     // Deduplicate by address (case-insensitive)
     const addressMap = new Map<string, { id: string; wallet_address: string }>();
-    for (const row of walletRows || []) {
+    for (const row of filteredWalletRows) {
       if (row.address && row.address.startsWith('0x')) {
         const key = row.address.toLowerCase();
         if (!addressMap.has(key)) {
@@ -77,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     const users = Array.from(addressMap.values());
-    console.log(`[EVM] Found ${walletRows?.length || 0} from wallet_addresses, ${users.length} unique`);
+    console.log(`[EVM] Found ${filteredWalletRows.length} from wallet_addresses, ${users.length} unique`);
 
     if (users.length === 0) {
       return NextResponse.json({

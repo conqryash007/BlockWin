@@ -8,12 +8,14 @@ interface AdminUser {
   id: string;
   email: string;
   is_admin: boolean;
+  admin_origin: string | null;
 }
 
 interface UseAdminAuthReturn {
   isAdmin: boolean;
   isLoading: boolean;
   adminUser: AdminUser | null;
+  adminOrigin: string | null;
   error: string | null;
   refetch: () => Promise<void>;
   isAuthenticated: boolean;
@@ -52,7 +54,7 @@ export function useAdminAuth(): UseAdminAuthReturn {
 
       const { data, error: queryError } = await supabase
         .from('users')
-        .select('id, email, is_admin')
+        .select('id, email, is_admin, admin_origin')
         .eq('id', userId)
         .single();
 
@@ -99,6 +101,7 @@ export function useAdminAuth(): UseAdminAuthReturn {
     isAdmin,
     isLoading,
     adminUser,
+    adminOrigin: adminUser?.admin_origin ?? null,
     error,
     refetch: () => checkAdminStatus(true),
     isAuthenticated: !!session,

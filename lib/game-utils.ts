@@ -52,35 +52,51 @@ export async function getUserFromToken(authHeader: string | null): Promise<{ use
   return { userId: user.id };
 }
 
-// Get admin user from authorization header (checks is_admin flag)
-export async function getAdminFromToken(authHeader: string | null): Promise<{ userId: string; isAdmin: boolean; error?: string }> {
+// Get admin user from authorization header (checks is_admin flag + subdomain scope)
+// adminOrigin in the result tells the caller which origin to filter by (null = show all)
+export async function getAdminFromToken(
+  authHeader: string | null,
+  requestSubdomain?: string | null
+): Promise<{ userId: string; isAdmin: boolean; adminOrigin: string | null; error?: string }> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { userId: '', isAdmin: false, error: 'Missing or invalid authorization header' };
+    return { userId: '', isAdmin: false, adminOrigin: null, error: 'Missing or invalid authorization header' };
   }
 
   const token = authHeader.replace('Bearer ', '');
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
   if (error || !user) {
-    return { userId: '', isAdmin: false, error: 'Invalid or expired token' };
+    return { userId: '', isAdmin: false, adminOrigin: null, error: 'Invalid or expired token' };
   }
 
-  // Check if user is admin
+  // Check if user is admin and get their admin scope
   const { data: userData, error: userError } = await supabaseAdmin
     .from('users')
-    .select('is_admin')
+    .select('is_admin, admin_origin')
     .eq('id', user.id)
     .single();
 
   if (userError || !userData) {
-    return { userId: user.id, isAdmin: false, error: 'User not found' };
+    return { userId: user.id, isAdmin: false, adminOrigin: null, error: 'User not found' };
   }
 
   if (!userData.is_admin) {
-    return { userId: user.id, isAdmin: false, error: 'Admin access required' };
+    return { userId: user.id, isAdmin: false, adminOrigin: null, error: 'Admin access required' };
   }
 
-  return { userId: user.id, isAdmin: true };
+  // Subdomain scope check:
+  // Super admin (admin_origin = null) can access any subdomain's admin panel
+  // Subdomain admin can only access their own subdomain's admin panel
+  if (requestSubdomain && userData.admin_origin && userData.admin_origin !== requestSubdomain) {
+    return { userId: user.id, isAdmin: false, adminOrigin: userData.admin_origin, error: 'Not authorized for this subdomain' };
+  }
+
+  // Determine effective filter origin:
+  // On main domain (requestSubdomain = null): super admin sees all, subdomain admin sees their origin
+  // On subdomain: always filter to that subdomain
+  const effectiveOrigin = requestSubdomain ?? userData.admin_origin ?? null;
+
+  return { userId: user.id, isAdmin: true, adminOrigin: effectiveOrigin };
 }
 
 // Fetch house edge for a game
