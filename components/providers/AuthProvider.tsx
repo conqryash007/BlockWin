@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useAccount, useReadContract, useDisconnect, useWriteContract } from 'wagmi';
 import { createClient } from '@/lib/supabase';
+import { getSubdomain } from '@/lib/subdomain';
 import { toast } from 'sonner';
 import { maxUint256 } from 'viem';
 import { CONTRACTS, SUPPORTED_TOKENS } from '@/lib/contracts';
@@ -256,12 +257,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         baseUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_URL;
       }
-      console.log('[Auth] OAuth redirectTo baseUrl:', baseUrl);
+      // Detect current subdomain and pass it as a query parameter so the
+      // callback can persist it even if the redirect lands on the main domain.
+      const currentSubdomain = typeof window !== 'undefined'
+        ? getSubdomain(window.location.hostname)
+        : null;
+
+      const callbackUrl = new URL('/auth/callback', baseUrl);
+      if (currentSubdomain) {
+        callbackUrl.searchParams.set('subdomain', currentSubdomain);
+      }
+
+      console.log('[Auth] OAuth redirectTo:', callbackUrl.toString());
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${baseUrl}/auth/callback`,
+          redirectTo: callbackUrl.toString(),
           queryParams: {
             prompt: 'select_account',  // Always show Google account picker after logout
           },

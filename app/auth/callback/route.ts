@@ -9,11 +9,28 @@ export async function GET(request: Request) {
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/'
 
-  // Use the request origin so OAuth callbacks return to the correct subdomain.
-  // For Netlify deploy-previews, fall back to the canonical URL.
+  // The subdomain can come from two sources (in priority order):
+  // 1. The hostname of the request (e.g. max.blockwin.space)
+  // 2. The ?subdomain= query param we attached during signInWithOAuth
   const { hostname } = new URL(request.url)
+  const subdomainFromHost = getSubdomain(hostname)
+  const subdomainFromParam = searchParams.get('subdomain')
+  const subdomain = subdomainFromHost || subdomainFromParam || null
+
+  console.log('[Auth Callback] hostname:', hostname, 'subdomainFromHost:', subdomainFromHost, 'subdomainFromParam:', subdomainFromParam, 'resolved:', subdomain)
+
+  // Build the URL to redirect the user back to after auth completes.
+  // If we know the subdomain, always redirect to the subdomain origin so the
+  // user stays on their white-label site.
   const isPreview = hostname.endsWith('.netlify.app')
-  const appUrl = isPreview ? (process.env.NEXT_PUBLIC_APP_URL || origin) : origin
+  let appUrl: string
+  if (subdomain && !isPreview) {
+    appUrl = `https://${subdomain}.blockwin.space`
+  } else if (isPreview) {
+    appUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+  } else {
+    appUrl = origin
+  }
 
   if (code) {
     const cookieStore = cookies()
@@ -38,8 +55,8 @@ export async function GET(request: Request) {
     if (!error && data.user) {
       // Set origin for new users based on the subdomain they signed up from
       try {
-        const subdomain = getSubdomain(hostname) ?? process.env.SUBDOMAIN
-        if (subdomain) {
+        const effectiveSubdomain = subdomain ?? process.env.SUBDOMAIN
+        if (effectiveSubdomain) {
           const { data: existingUser, error: fetchError } = await supabaseAdmin
             .from('users')
             .select('id, origin')
@@ -54,36 +71,35 @@ export async function GET(request: Request) {
               .insert({
                 id: data.user.id,
                 email: data.user.email,
-                origin: subdomain,
+                origin: effectiveSubdomain,
               })
             if (insertError) {
               if (insertError.code === '23505') {
                 await supabaseAdmin
                   .from('users')
-                  .update({ origin: subdomain })
+                  .update({ origin: effectiveSubdomain })
                   .eq('id', data.user.id)
                   .is('origin', null)
               } else {
                 console.error('Error inserting user with origin:', insertError)
               }
             } else {
-              console.log(`New user ${data.user.id} created with origin: ${subdomain}`)
+              console.log(`New user ${data.user.id} created with origin: ${effectiveSubdomain}`)
             }
           } else if (!existingUser.origin) {
             const { error: updateError } = await supabaseAdmin
               .from('users')
-              .update({ origin: subdomain })
+              .update({ origin: effectiveSubdomain })
               .eq('id', data.user.id)
             if (updateError) {
               console.error('Error updating user origin:', updateError)
             } else {
-              console.log(`User ${data.user.id} origin updated to: ${subdomain}`)
+              console.log(`User ${data.user.id} origin updated to: ${effectiveSubdomain}`)
             }
           }
         }
       } catch (e) {
         console.error('Error setting user origin:', e)
-        // Continue to redirect so auth still succeeds
       }
 
       return NextResponse.redirect(`${appUrl}${next}`)
