@@ -62,6 +62,12 @@
   background: #3f434d;
 }
 
+/* WalletConnect modal must sit above all app UI (Radix overlays are z-50) */
+wcm-modal,
+w3m-modal {
+  z-index: 9999 !important;
+}
+
 @layer utilities {
   .glass-panel {
     @apply bg-casino-glass border border-casino-glass-border backdrop-blur-md;

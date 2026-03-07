@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -83,9 +83,6 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
-  // Global timeout to prevent WalletConnect from waiting forever
-  const walletConnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const WALLET_CONNECT_MAX_WAIT_MS = 30_000; // 30 seconds max
   
   // Detect mobile
   const [isMobile, setIsMobile] = useState(false);
@@ -162,53 +159,18 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
     }
   }, [open, defaultNetwork]);
 
-  // Helper to fully clear WalletConnect waiting state
-  const clearWalletConnectWaiting = useCallback(() => {
-    setIsWaitingForWalletConnect(false);
-    setConnectingId(null);
-    if (walletConnectTimeoutRef.current) {
-      clearTimeout(walletConnectTimeoutRef.current);
-      walletConnectTimeoutRef.current = null;
-    }
-  }, []);
-
-  // Start a global timeout when WalletConnect flow starts — prevents infinite wait
-  const startWalletConnectTimeout = useCallback(() => {
-    if (walletConnectTimeoutRef.current) {
-      clearTimeout(walletConnectTimeoutRef.current);
-    }
-    walletConnectTimeoutRef.current = setTimeout(() => {
-      console.warn('[WalletModal] WalletConnect global timeout reached — resetting state');
-      clearWalletConnectWaiting();
-      toast.error('Connection timed out. Please try again.', { duration: 5000 });
-    }, WALLET_CONNECT_MAX_WAIT_MS);
-  }, [clearWalletConnectWaiting]);
-
-  // Prevent outside interactions (pointer-down / focus / escape) from closing the dialog
-  // while a WalletConnect flow is active. The WC QR modal sits outside the Radix
-  // Dialog portal so its open/close lifecycle fires outside-interaction events.
+  // Prevent outside interactions from closing the dialog while a connector is loading
   const preventOutsideDismiss = useCallback((e: Event) => {
-    if (isWaitingForWalletConnect || connectingId) {
+    if (connectingId) {
       e.preventDefault();
     }
-  }, [isWaitingForWalletConnect, connectingId]);
+  }, [connectingId]);
 
-  // Reset state when modal closes
   const handleOpenChange = (newOpen: boolean) => {
-    // Don't close the modal if we're waiting for WalletConnect to complete
-    if (!newOpen && isWaitingForWalletConnect) {
-      console.log('[WalletModal] Preventing modal close while waiting for WalletConnect');
-      return;
-    }
-    
     if (!newOpen) {
       setSelectedNetwork(defaultNetwork);
       setConnectingId(null);
       setIsWaitingForWalletConnect(false);
-      if (walletConnectTimeoutRef.current) {
-        clearTimeout(walletConnectTimeoutRef.current);
-        walletConnectTimeoutRef.current = null;
-      }
     }
     onOpenChange(newOpen);
   };
@@ -320,30 +282,29 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                            <button 
                                key={connector.uid}
                                disabled={showLoading || isWaitingForWalletConnect}
-                               onClick={async () => {
-                                   try {
-                                     setConnectingId(connector.uid);
-                                     console.log(`[WalletModal] Connecting with ${connector.name}...`);
-                                     
-                                    // For WalletConnect, set flag before connect()
-                                    if (isWalletConnect) {
-                                      setIsWaitingForWalletConnect(true);
-                                      startWalletConnectTimeout(); // Prevent infinite wait
-                                      console.log('[WalletModal] WalletConnect selected, waiting for QR scan...');
-                                    }
+                              onClick={async () => {
+                                  try {
+                                    setConnectingId(connector.uid);
+                                    console.log(`[WalletModal] Connecting with ${connector.name}...`);
                                     
-                                    await connect({ connector });
-                                    console.log(`[WalletModal] connect() resolved for ${connector.name}`);
-                                    
-                                    // For non-WalletConnect, clear state after connection
-                                    if (!isWalletConnect && wagmiIsConnected) {
-                                      setConnectingId(null);
-                                    }
-                                  } catch (err: any) {
-                                    console.error(`[WalletModal] Connection failed:`, err);
-                                    clearWalletConnectWaiting();
-                                  }
-                                }}
+                                   if (isWalletConnect) {
+                                     // Close our modal so WalletConnect's native modal can work properly.
+                                     // Radix Dialog's focus trap + overlay blocks WC modal scrolling,
+                                     // search input, and close/back buttons.
+                                     onOpenChange(false);
+                                   }
+                                   
+                                   await connect({ connector });
+                                   console.log(`[WalletModal] connect() resolved for ${connector.name}`);
+                                   
+                                   if (!isWalletConnect && wagmiIsConnected) {
+                                     setConnectingId(null);
+                                   }
+                                 } catch (err: any) {
+                                   console.error(`[WalletModal] Connection failed:`, err);
+                                   setConnectingId(null);
+                                 }
+                               }}
                                className={cn(
                                    "group relative flex items-center w-full p-3.5 rounded-xl border border-white/5 bg-[#111316] hover:bg-[#16181b] transition-all duration-300 outline-none focus:ring-2 focus:ring-casino-brand/50",
                                    border,
@@ -404,12 +365,9 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                       setConnectingId(wallet.adapter.name);
                                       
                                       if (isWalletConnect) {
-                                          setIsWaitingForWalletConnect(true);
-                                          startWalletConnectTimeout(); // Prevent infinite wait
-                                          console.log('[WalletModal] Tron WalletConnect selected, waiting for QR scan...');
+                                          onOpenChange(false);
                                       }
                                       
-                                      // Select wallet first, then allow WalletProvider to process selection before connect
                                       if (wallet.adapter.name !== currentTronWallet?.adapter.name) {
                                           selectTronWallet(wallet.adapter.name);
                                           await new Promise(resolve => setTimeout(resolve, 0));
@@ -418,7 +376,6 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                       await connectTronWallet();
                                       console.log(`[WalletModal] Tron connect() resolved for ${wallet.adapter.name}`);
                                       
-                                      // Clear connecting state on success
                                       setConnectingId(null);
                                       setIsWaitingForWalletConnect(false);
                                       
@@ -429,9 +386,8 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                           wallet: wallet.adapter.name,
                                           error: e,
                                       });
-                                      clearWalletConnectWaiting();
+                                      setConnectingId(null);
                                       
-                                      // Show user-friendly error messages
                                       const msg = e?.message || '';
                                       if (msg.includes('rejected') || msg.includes('User rejected') || msg.includes('denied')) {
                                           toast.error('Connection was cancelled.');
