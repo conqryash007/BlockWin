@@ -91,10 +91,8 @@ export async function getAdminFromToken(
     return { userId: user.id, isAdmin: false, adminOrigin: userData.admin_origin, error: 'Not authorized for this subdomain' };
   }
 
-  // Determine effective filter origin:
-  // On main domain (requestSubdomain = null): super admin sees all, subdomain admin sees their origin
-  // On subdomain: always filter to that subdomain
-  const effectiveOrigin = requestSubdomain ?? userData.admin_origin ?? null;
+  // Super admin (admin_origin = null) always sees all; subdomain admin sees only their origin
+  const effectiveOrigin = userData.admin_origin ?? null;
 
   return { userId: user.id, isAdmin: true, adminOrigin: effectiveOrigin };
 }

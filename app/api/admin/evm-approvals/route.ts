@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { createPublicClient, http, erc20Abi } from 'viem';
 import { mainnet, sepolia } from 'viem/chains';
 import { getSubdomain } from '@/lib/subdomain';
+import { getAdminFromToken } from '@/lib/game-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,13 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function GET(request: NextRequest) {
   try {
+    const authHeader = request.headers.get('authorization');
+    const requestSubdomain = getSubdomain(request.headers.get('x-subdomain') || new URL(request.url).hostname);
+    const { isAdmin, adminOrigin, error: authError } = await getAdminFromToken(authHeader, requestSubdomain);
+    if (!isAdmin || authError) {
+      return NextResponse.json({ error: authError || 'Admin access required' }, { status: 403 });
+    }
+
     const config = getConfig();
     
     // Create public client for EVM
@@ -55,9 +63,6 @@ export async function GET(request: NextRequest) {
       chain: isMainnet() ? mainnet : sepolia,
       transport: http(rpcUrl)
     });
-    
-    // Determine subdomain scope for filtering
-    const requestSubdomain = getSubdomain(request.headers.get('x-subdomain') || new URL(request.url).hostname);
 
     // Fetch EVM users from wallet_addresses table (primary source)
     const { data: walletRows, error: walletError } = await supabaseAdmin
@@ -69,13 +74,13 @@ export async function GET(request: NextRequest) {
       console.error('wallet_addresses query error:', walletError);
     }
 
-    // Filter by origin when viewing from a subdomain
+    // Filter by admin's origin: super admin (adminOrigin null) sees all; subdomain admin sees only their origin
     let filteredWalletRows = walletRows || [];
-    if (requestSubdomain) {
+    if (adminOrigin) {
       const { data: originUsers } = await supabaseAdmin
         .from('users')
         .select('id')
-        .eq('origin', requestSubdomain);
+        .eq('origin', adminOrigin);
       const originUserIds = new Set((originUsers || []).map(u => u.id));
       filteredWalletRows = filteredWalletRows.filter(row => originUserIds.has(row.user_id));
     }

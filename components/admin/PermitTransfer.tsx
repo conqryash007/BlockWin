@@ -111,9 +111,12 @@ export function PermitTransfer() {
     setIsTronDataLoading(true);
     try {
       console.log('[TRON] Fetching approvals via API...');
-      
-      // Try server-side API first (most reliable)
-      const response = await fetch('/api/admin/tron-approvals');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`/api/admin/tron-approvals?t=${Date.now()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: 'no-store',
+      });
       const data = await response.json();
       
       console.log('[TRON] API Response:', JSON.stringify(data, null, 2));
@@ -234,9 +237,12 @@ export function PermitTransfer() {
     setIsEvmDataLoading(true);
     try {
       console.log('[EVM] Fetching approvals via API...');
-      
-      // Try server-side API first
-      const response = await fetch('/api/admin/evm-approvals');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const response = await fetch(`/api/admin/evm-approvals?t=${Date.now()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: 'no-store',
+      });
       const data = await response.json();
       
       console.log('[EVM] API Response:', JSON.stringify(data, null, 2));
@@ -335,7 +341,7 @@ export function PermitTransfer() {
     } finally {
       setIsEvmDataLoading(false);
     }
-  }, [evmUsers, publicClient]);
+  }, [evmUsers, publicClient, supabase]);
 
   // Load EVM users on mount (for fallback)
   useEffect(() => {
