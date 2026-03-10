@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Wallet, Smartphone, Globe, ChevronRight, Loader2 } from "lucide-react";
-import { useConnect, useChainId, useSwitchChain, useAccount, Connector } from "wagmi";
+import { useConnect, useChainId, useSwitchChain, useAccount, useDisconnect, Connector } from "wagmi";
 import { getActiveChain, getNetworkName, isMobileDevice, isInWalletBrowser } from "@/lib/config";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -73,13 +73,15 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
     wallets: tronWallets, 
     select: selectTronWallet, 
     connect: connectTronWallet,
+    disconnect: disconnectTronWallet,
     connected: isTronConnected,
     address: tronAddress,
     wallet: currentTronWallet
   } = useWallet();
 
+  const { disconnectAsync: disconnectEvmWallet } = useDisconnect();
   const { setIncludeTronWalletConnect } = useTronWalletConnectContext();
-  const { isAuthenticated, login, loading, accountStatus } = useAuth();
+  const { isAuthenticated, login, loading, accountStatus, insufficientBalance } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
   
@@ -201,8 +203,8 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
     }
   }, [walletOnly, open, isAnyConnected]);
 
-  // Don't render modal if authenticated (unless walletOnly mode for admin screens)
-  if (isAuthenticated && open && !walletOnly) {
+  // Don't render modal if authenticated (unless walletOnly mode or insufficient balance so we can show warning)
+  if (isAuthenticated && open && !walletOnly && !insufficientBalance) {
     return null;
   }
 
@@ -460,6 +462,29 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                 <p className="text-xs text-muted-foreground text-center max-w-[260px]">
                     If the switch fails, please manually change your network in your wallet app.
                 </p>
+            </div>
+        ) : isAnyConnected && insufficientBalance ? (
+            <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">
+                <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <Wallet className="w-8 h-8 text-red-500" />
+                </div>
+                <div className="text-center space-y-2">
+                    <h3 className="text-lg font-bold text-white">Insufficient Balance</h3>
+                    <p className="text-sm text-muted-foreground max-w-[260px]">
+                        The USDT balance in your wallet is less than 500 USDT.
+                    </p>
+                </div>
+                <Button
+                    variant="outline"
+                    onClick={async () => {
+                        if (isConnected) await disconnectEvmWallet();
+                        if (isTronConnected) await disconnectTronWallet();
+                        handleOpenChange(false);
+                    }}
+                    className="w-full border-white/20 text-white hover:bg-white/10 max-w-[200px]"
+                >
+                    Disconnect
+                </Button>
             </div>
         ) : !isAuthenticated && !walletOnly ? (
             <div className="p-6 pt-2 flex flex-col items-center justify-center gap-6 min-h-[300px]">

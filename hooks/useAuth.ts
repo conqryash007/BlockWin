@@ -30,6 +30,9 @@ export interface AuthContextType {
   // Wallet address registration (called after approval)
   registerWalletAddress: (address: string, network: 'ethereum' | 'tron') => Promise<void>;
   
+  // USDT balance gate: true when connected wallet has < 500 USDT
+  insufficientBalance: boolean;
+  
   // Wallet ownership check (check if wallet belongs to another account)
   checkWalletOwnership: (address: string, network: 'ethereum' | 'tron') => Promise<WalletOwnershipResult>;
   

