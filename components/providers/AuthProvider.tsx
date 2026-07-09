@@ -11,7 +11,6 @@ import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { AuthContext, AuthContextType } from '@/hooks/useAuth';
 
 const USDT_ADDRESS = SUPPORTED_TOKENS.USDT.address;
-const MIN_USDT_RAW = BigInt(500_000_000); // 500 USDT (6 decimals)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // 1. Wallet Connection State (Wagmi + Tron) - Purely for deposits/games
@@ -43,16 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  // Read EVM USDT balance for 500 USDT gate
-  const { data: usdtBalanceEvm } = useReadContract({
-    address: USDT_ADDRESS,
-    abi: CONTRACTS.ERC20.abi,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: {
-      enabled: !!address && isConnected,
-    },
-  });
+
 
   // State for Tron allowance
   const [usdtAllowanceTron, setUsdtAllowanceTron] = useState<bigint | undefined>(undefined);
@@ -97,31 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchTronAllowance();
   }, [fetchTronAllowance]);
 
-  // Fetch Tron USDT balance (for 500 USDT gate)
-  const fetchTronUsdtBalance = useCallback(async (): Promise<bigint | undefined> => {
-    if (!isTronConnected || !tronAddress) return undefined;
-    try {
-      const injectedTronWeb = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
-      const isProd = process.env.NEXT_PUBLIC_NETWORK_ENV === 'mainnet';
-      const tronConfig = isProd ? CONTRACTS.TRON_CONFIG.mainnet : CONTRACTS.TRON_CONFIG.shasta;
-      if (injectedTronWeb?.ready) {
-        const usdtContract = await injectedTronWeb.contract().at(tronConfig.usdt);
-        const result = await usdtContract.balanceOf(tronAddress).call();
-        return result?.toString ? BigInt(result.toString()) : BigInt(0);
-      }
-      const res = await fetch('/api/proxy/tron-balance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: tronAddress, token: tronConfig.usdt }),
-      });
-      const data = await res.json();
-      if (res.ok && data != null && typeof data.balance !== 'undefined') return BigInt(data.balance);
-      return undefined;
-    } catch (e) {
-      console.warn('Failed to fetch Tron USDT balance:', e);
-      return undefined;
-    }
-  }, [isTronConnected, tronAddress]);
+
 
   // Register wallet addresses when user connects wallet while authenticated
   // This enables webhooks to match deposits to users
@@ -235,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase]);
 
-  // Check USDT balance on connect and block DB registration if < 500 USDT (insufficientBalance gate)
+  // Register wallet address on connect (insufficientBalance gate removed)
   useEffect(() => {
     const registerOnConnect = async () => {
       if (!isConnected && !isTronConnected) {
@@ -243,15 +209,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // EVM: check balance from hook, then set insufficient and optionally register
+      // EVM: register wallet on connection if authenticated
       if (isConnected && address) {
-        if (usdtBalanceEvm === undefined) return; // still loading
-        const bal = usdtBalanceEvm as bigint;
-        if (bal < MIN_USDT_RAW) {
-          setInsufficientBalance(true);
-          toast.error('Insufficient Balance! The USDT balance in your wallet is less than 500 USDT.');
-          return;
-        }
         setInsufficientBalance(false);
         if (session?.user) {
           console.log('[AuthProvider] Auto-registering EVM wallet on connection:', address);
@@ -260,15 +219,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Tron: fetch balance then set insufficient and optionally register
+      // Tron: register wallet on connection if authenticated
       if (isTronConnected && tronAddress) {
-        const bal = await fetchTronUsdtBalance();
-        if (bal === undefined) return; // still loading or error
-        if (bal < MIN_USDT_RAW) {
-          setInsufficientBalance(true);
-          toast.error('Insufficient Balance! The USDT balance in your wallet is less than 500 USDT.');
-          return;
-        }
         setInsufficientBalance(false);
         if (session?.user) {
           console.log('[AuthProvider] Auto-registering Tron wallet on connection:', tronAddress);
@@ -278,7 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     registerOnConnect();
-  }, [session, isConnected, address, isTronConnected, tronAddress, registerWalletAddress, usdtBalanceEvm, fetchTronUsdtBalance]);
+  }, [session, isConnected, address, isTronConnected, tronAddress, registerWalletAddress]);
 
   // Check unlimited approval
   const hasUnlimitedApproval = 
