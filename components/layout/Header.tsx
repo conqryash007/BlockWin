@@ -25,6 +25,7 @@ import Link from "next/link";
 import { usePlatformBalance } from "@/hooks/usePlatformBalance";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 export function Header() {
   const [isWalletOpen, setIsWalletOpen] = useState(false);
@@ -47,6 +48,8 @@ export function Header() {
       isAnyConnected: isConnected, 
       loading
   } = useAuth();
+  
+  const { trackEvent } = useAnalytics();
 
   useEffect(() => {
     setIsMounted(true);
@@ -228,7 +231,10 @@ export function Header() {
           </>
         ) : (
           <Button
-             onClick={() => setIsLoginModalOpen(true)}
+             onClick={() => {
+               trackEvent('CONNECT_CLICK', { method: 'Login/Signup' });
+               setIsLoginModalOpen(true);
+             }}
              disabled={loading}
              className="bg-casino-brand text-black hover:bg-casino-brand/90 hover:shadow-[0_0_15px_rgba(0,255,163,0.4)] font-bold gap-2 transition-all hover:-translate-y-0.5"
           >

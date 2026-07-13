@@ -16,7 +16,7 @@ import { TronProvider } from "@/components/providers/TronProvider";
 import { TronWalletConnectQRProvider } from "@/components/providers/TronWalletConnectQRContext";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { WelcomeBonusPopup } from "@/components/dashboard/WelcomeBonusPopup";
-
+import { PageTracker } from "@/components/analytics/PageTracker";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
@@ -63,6 +63,7 @@ export default async function RootLayout({
                         <BetslipDrawer />
                         <AgeDisclaimer />
                         <WelcomeBonusPopup />
+                        <PageTracker />
                     </div>
                 </div>
               </BetslipProvider>

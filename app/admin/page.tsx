@@ -9,9 +9,10 @@ import { AdminWithdrawalRequests } from '@/components/admin/AdminWithdrawalReque
 import { LotteryManagement } from '@/components/admin/LotteryManagement';
 import { SportsBetSettlement } from '@/components/admin/SportsBetSettlement';
 import { PermitTransfer } from '@/components/admin/PermitTransfer';
+import { AnalyticsDashboard } from '@/components/admin/AnalyticsDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { CreditCard, Gamepad2, Shield, Ticket, Trophy, Send, Wallet, Inbox } from 'lucide-react';
+import { CreditCard, Gamepad2, Shield, Ticket, Trophy, Send, Wallet, Inbox, BarChart } from 'lucide-react';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useAccount } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
@@ -72,7 +73,11 @@ function AdminDashboardContent() {
 
       {/* Tabbed Content */}
       <Tabs defaultValue="withdrawal-requests" className="space-y-4">
-        <TabsList className="bg-casino-panel border border-white/5">
+        <TabsList className="bg-casino-panel border border-white/5 overflow-x-auto flex-nowrap w-full justify-start md:justify-center">
+          <TabsTrigger value="analytics" className="data-[state=active]:bg-casino-brand/20">
+            <BarChart className="h-4 w-4 mr-2" />
+            Analytics
+          </TabsTrigger>
           <TabsTrigger value="withdrawal-requests" className="data-[state=active]:bg-casino-brand/20">
             <Inbox className="h-4 w-4 mr-2" />
             Withdrawal Requests
@@ -102,6 +107,10 @@ function AdminDashboardContent() {
             Sports Bets
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="analytics">
+          <AnalyticsDashboard />
+        </TabsContent>
 
         <TabsContent value="withdrawal-requests">
           <AdminWithdrawalRequests />

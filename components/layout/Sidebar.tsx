@@ -22,6 +22,7 @@ import {
   ArrowUpFromLine,
 } from "lucide-react";
 import { useState } from "react";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
@@ -92,6 +93,7 @@ interface SidebarContentProps {
 }
 
 function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = false }: SidebarContentProps) {
+  const { trackEvent } = useAnalytics();
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-black via-[#0d0d10] to-black">
       {/* Header / Logo */}
@@ -136,6 +138,7 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
               <Link 
                 key={item.href}
                 href={item.href}
+                onClick={() => trackEvent('SECTION_JUMP', { section: item.name, path: item.href })}
                 className={cn(
                     "group relative flex items-center w-full p-3 rounded-xl transition-all duration-150 ease-out overflow-hidden hover:shadow-lg",
                     isCollapsed && !isMobile ? "justify-center px-0" : "px-4",
@@ -181,6 +184,7 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
       <div className={cn("px-3 pb-2", isCollapsed && !isMobile && "px-2")}>
         <Link
           href="/withdraw"
+          onClick={() => trackEvent('SECTION_JUMP', { section: 'Withdraw', path: '/withdraw' })}
           className={cn(
             "group relative flex items-center w-full p-3 rounded-xl transition-all duration-150 ease-out overflow-hidden",
             "bg-gradient-to-r from-orange-500/10 to-transparent border border-orange-500/20 hover:border-orange-500/40 hover:shadow-[0_0_15px_rgba(249,115,22,0.15)]",
@@ -250,7 +254,7 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
                 <p className="text-[10px] text-gray-400 mb-4 leading-tight max-w-[120px]">
                     Unlock exclusive rewards & weekly cashback
                 </p>
-                <Link href="/vip">
+                <Link href="/vip" onClick={() => trackEvent('SECTION_JUMP', { section: 'VIP Access', path: '/vip' })}>
                   <Button className="w-full h-9 bg-gradient-to-r from-casino-brand to-emerald-500 text-black font-extrabold text-xs shadow-lg shadow-casino-brand/20 hover:shadow-casino-brand/40 hover:scale-105 transition-all duration-300 border-0">
                     JOIN CLUB
                   </Button>
@@ -258,7 +262,7 @@ function SidebarContent({ isCollapsed, setIsCollapsed, pathname, isMobile = fals
             </div>
           </div>
         ) : (
-           <Link href="/vip">
+           <Link href="/vip" onClick={() => trackEvent('SECTION_JUMP', { section: 'VIP Access (Icon)', path: '/vip' })}>
              <Button size="icon" variant="ghost" className="w-full h-12 rounded-xl justify-center text-yellow-500 bg-yellow-500/5 hover:bg-yellow-500/20 transition-all hover:scale-110">
                <Crown className="h-6 w-6" />
              </Button>
