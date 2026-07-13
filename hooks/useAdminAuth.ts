@@ -54,21 +54,20 @@ export function useAdminAuth(): UseAdminAuthReturn {
 
       const { data, error: queryError } = await supabase
         .from('users')
-        .select('id, email, is_admin, admin_origin')
+        .select('id, is_admin, admin_origin')
         .eq('id', userId)
         .single();
 
-      if (queryError || !data) {
-        setIsAdmin(false);
-        setAdminUser(null);
-        setIsLoading(false);
-        checkedUserIdRef.current = userId;
-        return;
+      if (queryError) {
+        throw new Error(queryError.message);
+      }
+      if (!data) {
+        throw new Error('User profile not found in database');
       }
 
       const isAdminFlag = data.is_admin === true;
       setIsAdmin(isAdminFlag);
-      setAdminUser(isAdminFlag ? (data as AdminUser) : null);
+      setAdminUser(isAdminFlag ? { ...data, email: authUser?.email ?? '' } as AdminUser : null);
       checkedUserIdRef.current = userId;
     } catch (err) {
       console.error('Error checking admin status:', err);
