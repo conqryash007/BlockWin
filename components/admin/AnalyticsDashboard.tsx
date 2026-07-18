@@ -13,6 +13,9 @@ export function AnalyticsDashboard() {
   const [connectClicks, setConnectClicks] = useState(0);
   const [sectionJumps, setSectionJumps] = useState<Record<string, number>>({});
   const [dailyData, setDailyData] = useState<any[]>([]);
+  const [todayVisits, setTodayVisits] = useState(0);
+  const [todayClicks, setTodayClicks] = useState(0);
+  const [todayJumps, setTodayJumps] = useState(0);
 
   useEffect(() => {
     async function fetchAnalytics() {
@@ -27,10 +30,15 @@ export function AnalyticsDashboard() {
         let visits = 0;
         let clicks = 0;
         const jumps: Record<string, number> = {};
+        let tVisits = 0;
+        let tClicks = 0;
+        let tJumps = 0;
+        const todayStr = new Date().toISOString().split('T')[0];
         const dailyCounts: Record<string, { date: string; pageViews: number; connectClicks: number }> = {};
 
         data?.forEach((event) => {
           const date = new Date(event.created_at).toISOString().split('T')[0];
+          const isToday = date === todayStr;
           
           if (!dailyCounts[date]) {
             dailyCounts[date] = { date, pageViews: 0, connectClicks: 0 };
@@ -39,13 +47,16 @@ export function AnalyticsDashboard() {
           if (event.event_type === 'PAGE_VIEW') {
             visits++;
             dailyCounts[date].pageViews++;
+            if (isToday) tVisits++;
           } else if (event.event_type === 'CONNECT_CLICK') {
             clicks++;
             dailyCounts[date].connectClicks++;
+            if (isToday) tClicks++;
           } else if (event.event_type === 'SECTION_JUMP') {
             const section = event.event_data?.section;
             if (section) {
               jumps[section] = (jumps[section] || 0) + 1;
+              if (isToday) tJumps++;
             }
           }
         });
@@ -56,6 +67,9 @@ export function AnalyticsDashboard() {
         setConnectClicks(clicks);
         setSectionJumps(jumps);
         setDailyData(sortedDailyData);
+        setTodayVisits(tVisits);
+        setTodayClicks(tClicks);
+        setTodayJumps(tJumps);
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
       } finally {
@@ -76,7 +90,47 @@ export function AnalyticsDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold text-white tracking-tight">Today's Activity</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="bg-black/40 border-white/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-gray-400">Page Views Today</CardTitle>
+              <Users className="w-4 h-4 text-casino-brand" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-white">{todayVisits}</div>
+              <p className="text-xs text-muted-foreground mt-1">Today</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-black/40 border-white/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-gray-400">Connect Clicks Today</CardTitle>
+              <MousePointerClick className="w-4 h-4 text-casino-brand" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-white">{todayClicks}</div>
+              <p className="text-xs text-muted-foreground mt-1">Today</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-black/40 border-white/5">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-medium text-gray-400">Section Jumps Today</CardTitle>
+              <LinkIcon className="w-4 h-4 text-casino-brand" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-white">{todayJumps}</div>
+              <p className="text-xs text-muted-foreground mt-1">Today</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold text-white tracking-tight">All-time Totals</h2>
+        <div className="grid gap-4 md:grid-cols-3">
         <Card className="bg-black/40 border-white/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-gray-400">Total Page Views</CardTitle>
@@ -111,6 +165,7 @@ export function AnalyticsDashboard() {
             <p className="text-xs text-muted-foreground mt-1">Navigation clicks</p>
           </CardContent>
         </Card>
+      </div>
       </div>
 
       <Card className="bg-black/40 border-white/5">
