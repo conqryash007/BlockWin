@@ -5,12 +5,14 @@ import { supabase } from '@/lib/supabase';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, MousePointerClick, Link as LinkIcon, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export function AnalyticsDashboard() {
   const [loading, setLoading] = useState(true);
   const [totalVisits, setTotalVisits] = useState(0);
   const [connectClicks, setConnectClicks] = useState(0);
   const [sectionJumps, setSectionJumps] = useState<Record<string, number>>({});
+  const [dailyData, setDailyData] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchAnalytics() {
@@ -25,12 +27,21 @@ export function AnalyticsDashboard() {
         let visits = 0;
         let clicks = 0;
         const jumps: Record<string, number> = {};
+        const dailyCounts: Record<string, { date: string; pageViews: number; connectClicks: number }> = {};
 
         data?.forEach((event) => {
+          const date = new Date(event.created_at).toISOString().split('T')[0];
+          
+          if (!dailyCounts[date]) {
+            dailyCounts[date] = { date, pageViews: 0, connectClicks: 0 };
+          }
+
           if (event.event_type === 'PAGE_VIEW') {
             visits++;
+            dailyCounts[date].pageViews++;
           } else if (event.event_type === 'CONNECT_CLICK') {
             clicks++;
+            dailyCounts[date].connectClicks++;
           } else if (event.event_type === 'SECTION_JUMP') {
             const section = event.event_data?.section;
             if (section) {
@@ -39,9 +50,12 @@ export function AnalyticsDashboard() {
           }
         });
 
+        const sortedDailyData = Object.values(dailyCounts).sort((a, b) => a.date.localeCompare(b.date));
+
         setTotalVisits(visits);
         setConnectClicks(clicks);
         setSectionJumps(jumps);
+        setDailyData(sortedDailyData);
       } catch (err) {
         console.error('Failed to fetch analytics:', err);
       } finally {
@@ -124,6 +138,35 @@ export function AnalyticsDashboard() {
               )}
             </div>
           </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-black/40 border-white/5">
+        <CardHeader>
+          <CardTitle className="text-lg font-medium text-white">Daily Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] w-full mt-4">
+            {dailyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={dailyData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#33" vertical={false} />
+                  <XAxis dataKey="date" stroke="#888" fontSize={12} tickLine={false} axisLine={false} tickMargin={10} />
+                  <YAxis stroke="#888" fontSize={12} tickLine={false} axisLine={false} tickMargin={10} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#111', borderColor: '#333', color: '#fff', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                  <Line type="monotone" dataKey="pageViews" name="Page Views" stroke="#E50914" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="connectClicks" name="Connect Clicks" stroke="#ffffff" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No daily data available.
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
