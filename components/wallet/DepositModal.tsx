@@ -36,7 +36,7 @@ import { useOnOpenDepositModal, triggerBonusUpdate } from '@/lib/depositEvents';
 
 type DepositStep = 1 | 2 | 3 | 4 | 5;
 
-const STEP_LABELS = ['Network', 'Wallet', 'Amount', 'Approve', 'Deposit'];
+const STEP_LABELS = ['Network', 'Amount', 'Wallet', 'Approve', 'Deposit'];
 
 // Wallet styling helper
 const getWalletStyle = (name: string) => {
@@ -296,13 +296,35 @@ export function DepositModal() {
     
     prevConnectedRef.current = isNowConnected;
     
-    // Advance to step 3 when wallet connects while on step 2
-    if (step === 2 && isNowConnected) {
-      console.log('[DepositModal] Wallet connected, advancing to step 3 (amount)');
+    // Advance from Wallet (Step 3) when connected and data is loaded
+    if (step === 3 && isNowConnected) {
       clearWalletConnectWaiting();
-      setStep(3);
     }
   }, [step, isConnectedToSelectedNetwork, isWrongNetwork, selectedNetwork, isEvmConnected, isTronConnected, wagmiStatus, isWaitingForWalletConnect, clearWalletConnectWaiting]);
+
+  // Auto-continue from Wallet step (Step 3) once balance and allowance are loaded
+  useEffect(() => {
+    if (step === 3 && isConnectedToSelectedNetwork && !isWrongNetwork) {
+      const isDataLoading = balanceLoading || (selectedNetwork === 'tron' ? tronAllowance === undefined : evmAllowance === undefined);
+      
+      if (!isDataLoading) {
+        if (!hasSufficientBalance) {
+          toast.error('Insufficient balance');
+          setStep(2); // Go back to Amount step
+          return;
+        }
+        
+        // Auto-trigger approval or deposit
+        if (hasUnlimitedApproval) {
+          setStep(5);
+          setTimeout(() => handleDepositRef.current?.(), 100);
+        } else {
+          setStep(4);
+          setTimeout(() => handleApprovalRef.current?.(), 100);
+        }
+      }
+    }
+  }, [step, isConnectedToSelectedNetwork, isWrongNetwork, balanceLoading, tronAllowance, evmAllowance, selectedNetwork, hasSufficientBalance, hasUnlimitedApproval]);
 
   // Additional watcher for wagmi connection status - catches WalletConnect completions
   useEffect(() => {
@@ -441,15 +463,8 @@ export function DepositModal() {
       }
     }
     
-    // Check if already connected to the selected network
-    const alreadyConnected = network === 'tron' ? isTronConnected : isEvmConnected;
-    const wrongNet = network === 'ethereum' && isEvmConnected && chainId !== activeChain.id;
-    
-    if (alreadyConnected && !wrongNet) {
-      setStep(3);
-    } else {
-      setStep(2);
-    }
+    // Always go to Amount step (now Step 2)
+    setStep(2);
   };
 
   // Proceed from Amount step - automatically handle approval and deposit
@@ -458,6 +473,11 @@ export function DepositModal() {
       toast.error('Please enter an amount');
       return;
     }
+    if (!isConnectedToSelectedNetwork) {
+      setStep(3); // Go to Wallet connection step
+      return;
+    }
+    
     if (!hasSufficientBalance) {
       toast.error('Insufficient balance');
       return;
@@ -498,49 +518,26 @@ export function DepositModal() {
         return;
       }
 
-      // For EVM: wait for the approval tx to be confirmed on-chain before proceeding.
-      // This prevents "Nonce too low" errors when the deposit tx is submitted immediately
-      // after the approval tx, especially with WalletConnect / mobile wallets.
-      if (selectedNetwork === 'ethereum' && typeof approvalResult === 'string' && publicClient) {
-        toast.info('Waiting for approval confirmation on-chain...');
-        try {
-          await publicClient.waitForTransactionReceipt({
-            hash: approvalResult as `0x${string}`,
-            confirmations: 1,
-          });
-        } catch (receiptError: any) {
-          console.error('Approval confirmation failed:', receiptError);
-          toast.error('Approval transaction failed on-chain. Please try again.');
-          setIsProcessing(false);
-          return;
-        }
-      } else {
-        // Tron: wait a bit for propagation
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      // We deliberately DO NOT wait for on-chain confirmation here.
+      // The goal is to trigger the deposit transaction request immediately after the 
+      // approval request so the user does not have to jump back and forth between 
+      // the browser and their wallet (especially with WalletConnect).
 
-      // Refetch allowance after confirmation
-      if (selectedNetwork === 'tron') {
-        await refetchTronAllowance();
-      } else {
-        await refetchEvmAllowance();
-      }
-
-      // Register wallet address AFTER successful approval (only if balance >= 500 USDT)
+      // Register wallet address AFTER successful approval (optimistically)
       // This links the wallet to the user for webhook deposit matching
       if (activeAddress && !insufficientBalance) {
         await registerWalletAddress(activeAddress, selectedNetwork);
       }
       
-      toast.success('Approval successful! Proceeding to deposit...');
+      toast.success('Approval submitted! Proceeding to deposit...');
       setStep(5);
       setIsProcessing(false);
       
-      // Auto-trigger the deposit popup after approval completes
+      // Auto-trigger the deposit popup immediately
       // Use ref to get the latest handleDeposit (avoids stale closure)
       setTimeout(() => {
         handleDepositRef.current?.();
-      }, 100);
+      }, 500); // 500ms delay to give the wallet time to queue the first transaction
     } catch (error: any) {
       console.error('Approval error:', error);
       const msg = error?.message || 'Approval failed';
@@ -552,7 +549,7 @@ export function DepositModal() {
       }
       setIsProcessing(false);
     }
-  }, [selectedNetwork, tokenAddress, approveUnlimited, refetchTronAllowance, refetchEvmAllowance, activeAddress, insufficientBalance, registerWalletAddress, publicClient]);
+  }, [selectedNetwork, tokenAddress, approveUnlimited, activeAddress, insufficientBalance, registerWalletAddress]);
 
   // State for Tron tx progress
   const [tronTxStatus, setTronTxStatus] = useState<string>('');
@@ -914,16 +911,152 @@ export function DepositModal() {
             </div>
           )}
 
-          {/* Step 2: Wallet Connection */}
+          {/* Step 2: Amount Selection */}
           {step === 2 && selectedNetwork && (
             <div className="space-y-4">
               {/* Back button */}
               <button
-                onClick={() => { setStep(1); setSelectedNetwork(null); }}
+                onClick={() => setStep(1)}
                 className="flex items-center gap-1 text-sm text-muted-foreground hover:text-white transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
-                Back to network selection
+                Change network
+              </button>
+
+              {/* Network Badge */}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
+                  Network: <span className={selectedNetwork === 'tron' ? "text-red-500" : "text-indigo-400"}>
+                    {selectedNetwork === 'tron' ? 'TRON (TRC20)' : 'ETHEREUM (ERC20)'}
+                  </span>
+                </span>
+                {activeAddress && (
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {`${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`}
+                  </span>
+                )}
+              </div>
+
+              {/* Wallet Conflict Warning */}
+              {isCheckingWallet && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                  <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
+                  <span className="text-sm text-yellow-400">Checking wallet ownership...</span>
+                </div>
+              )}
+              
+              {walletConflict && !isCheckingWallet && (
+                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-red-400">Wallet Already Linked</span>
+                  </div>
+                  <p className="text-sm text-red-300/80">
+                    This wallet is already linked to another account:
+                  </p>
+                  <p className="text-sm font-mono text-red-400 bg-red-500/10 px-2 py-1 rounded break-all">
+                    {walletConflict.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Please connect a different wallet or login with the account above.
+                  </p>
+                </div>
+              )}
+
+              {/* Token Selector */}
+              <div className="space-y-2">
+                <span className="text-sm text-muted-foreground">Select Token</span>
+                <Select value={selectedToken} onValueChange={setSelectedToken}>
+                  <SelectTrigger className="bg-black/30 border-white/10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a1d21] border-white/10">
+                    {Object.entries(activeTokens).map(([key, t]) => (
+                      <SelectItem key={key} value={key} className="text-white hover:bg-white/10">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold">{t.symbol}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Amount Input */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    Balance: {balanceLoading ? (
+                      <Loader2 className="h-3 w-3 animate-spin inline" />
+                    ) : (
+                      <>{balance ? parseFloat(formatUnits(balance, token?.decimals || 18)).toFixed(4) : '0.0000'} {token?.symbol}</>
+                    )}
+                  </span>
+                </div>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="bg-black/30 border-white/10 text-white text-2xl h-14 pr-20"
+                    disabled={isProcessing}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    {token?.symbol}
+                  </span>
+                </div>
+                
+                {/* Quick amounts */}
+                <div className="flex gap-2">
+                  {['50', '100', '500', 'MAX'].map((val) => (
+                    <Button
+                      key={val}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs border-white/10 hover:bg-white/10"
+                      onClick={() => {
+                        if (val === 'MAX' && balance) {
+                          setAmount(formatUnits(balance, token?.decimals || 18));
+                        } else {
+                          setAmount(val);
+                        }
+                      }}
+                      disabled={isProcessing}
+                    >
+                      {val === 'MAX' ? 'Max' : `$${val}`}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {amount && !hasSufficientBalance && (
+                <p className="text-red-500 text-sm">Insufficient balance</p>
+              )}
+
+              {/* Next Button */}
+              <Button 
+                onClick={handleAmountNext}
+                className="w-full h-12 bg-casino-brand hover:bg-casino-brand/90 text-black font-bold"
+                disabled={!amount || !hasSufficientBalance || !!walletConflict || isCheckingWallet}
+              >
+                Continue
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
+          {/* Step 3: Wallet Connection */}
+          {step === 3 && selectedNetwork && !isConnectedToSelectedNetwork && (
+            <div className="space-y-4">
+              {/* Back button */}
+              <button
+                onClick={() => setStep(2)}
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-white transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back to amount
               </button>
 
               {/* Wrong network warning */}
@@ -1127,148 +1260,12 @@ export function DepositModal() {
             </div>
           )}
 
-          {/* Step 3: Amount Selection */}
-          {step === 3 && selectedNetwork && (
-            <div className="space-y-4">
-              {/* Back button */}
-              <button
-                onClick={() => setStep(1)}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-white transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Change network
-              </button>
-
-              {/* Network Badge */}
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
-                  Network: <span className={selectedNetwork === 'tron' ? "text-red-500" : "text-indigo-400"}>
-                    {selectedNetwork === 'tron' ? 'TRON (TRC20)' : 'ETHEREUM (ERC20)'}
-                  </span>
-                </span>
-                {activeAddress && (
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {`${activeAddress.slice(0, 6)}...${activeAddress.slice(-4)}`}
-                  </span>
-                )}
-              </div>
-
-              {/* Wallet Conflict Warning */}
-              {isCheckingWallet && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                  <Loader2 className="w-4 h-4 text-yellow-500 animate-spin" />
-                  <span className="text-sm text-yellow-400">Checking wallet ownership...</span>
-                </div>
-              )}
-              
-              {walletConflict && !isCheckingWallet && (
-                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                    <span className="text-sm font-medium text-red-400">Wallet Already Linked</span>
-                  </div>
-                  <p className="text-sm text-red-300/80">
-                    This wallet is already linked to another account:
-                  </p>
-                  <p className="text-sm font-mono text-red-400 bg-red-500/10 px-2 py-1 rounded break-all">
-                    {walletConflict.email}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Please connect a different wallet or login with the account above.
-                  </p>
-                </div>
-              )}
-
-              {/* Token Selector */}
-              <div className="space-y-2">
-                <span className="text-sm text-muted-foreground">Select Token</span>
-                <Select value={selectedToken} onValueChange={setSelectedToken}>
-                  <SelectTrigger className="bg-black/30 border-white/10">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1a1d21] border-white/10">
-                    {Object.entries(activeTokens).map(([key, t]) => (
-                      <SelectItem key={key} value={key} className="text-white hover:bg-white/10">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold">{t.symbol}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Amount Input */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Amount</span>
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    Balance: {balanceLoading ? (
-                      <Loader2 className="h-3 w-3 animate-spin inline" />
-                    ) : (
-                      <>{balance ? parseFloat(formatUnits(balance, token?.decimals || 18)).toFixed(4) : '0.0000'} {token?.symbol}</>
-                    )}
-                  </span>
-                </div>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="bg-black/30 border-white/10 text-white text-2xl h-14 pr-20"
-                    disabled={isProcessing}
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                    {token?.symbol}
-                  </span>
-                </div>
-                
-                {/* Quick amounts */}
-                <div className="flex gap-2">
-                  {['50', '100', '500', 'MAX'].map((val) => (
-                    <Button
-                      key={val}
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 text-xs border-white/10 hover:bg-white/10"
-                      onClick={() => {
-                        if (val === 'MAX' && balance) {
-                          setAmount(formatUnits(balance, token?.decimals || 18));
-                        } else {
-                          setAmount(val);
-                        }
-                      }}
-                      disabled={isProcessing}
-                    >
-                      {val === 'MAX' ? 'Max' : `$${val}`}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {amount && !hasSufficientBalance && (
-                <p className="text-red-500 text-sm">Insufficient balance</p>
-              )}
-
-              {/* Next Button */}
-              <Button 
-                onClick={handleAmountNext}
-                className="w-full h-12 bg-casino-brand hover:bg-casino-brand/90 text-black font-bold"
-                disabled={!amount || !hasSufficientBalance || !!walletConflict || isCheckingWallet}
-              >
-                Continue
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          )}
-
           {/* Step 4: Approval */}
           {step === 4 && selectedNetwork && (
-            <div className="space-y-4">
+            <div className="space-y-4 flex flex-col h-full min-h-[400px]">
               {/* Back button */}
               <button
-                onClick={() => setStep(3)}
+                onClick={() => setStep(2)}
                 className="flex items-center gap-1 text-sm text-muted-foreground hover:text-white transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
