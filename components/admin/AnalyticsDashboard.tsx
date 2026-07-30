@@ -61,8 +61,11 @@ export function AnalyticsDashboard() {
   const metrics = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     
+    // Set up trackers for unique visitors
+    const allTimeVisitors = new Set<string>();
+    const todayVisitors = new Set<string>();
+
     // Funnel stats
-    let totalVisits = 0;
     let totalPageViews = 0;
     let clickedConnect = 0;
     let walletSelected = 0;
@@ -70,13 +73,14 @@ export function AnalyticsDashboard() {
     let usdtApproved = 0;
 
     // Today stats
-    let todayVisits = 0;
     let todayPageViews = 0;
     let todayClickedConnect = 0;
     let todayWalletConnected = 0;
+    let todayUsdtApproved = 0;
 
     // Daily breakdown
     const daily: Record<string, any> = {};
+    const dailyVisitorsSets: Record<string, Set<string>> = {};
 
     filteredEvents.forEach(e => {
       const date = new Date(e.created_at).toISOString().split('T')[0];
@@ -84,20 +88,21 @@ export function AnalyticsDashboard() {
 
       if (!daily[date]) {
         daily[date] = { date, visitors: 0, pageViews: 0, walletClicks: 0, connected: 0 };
+        dailyVisitorsSets[date] = new Set<string>();
       }
 
       const type = e.event_type;
+      const visitorId = e.event_data?.visitor_id || e.id; // fallback to event ID for legacy data
       
       if (type === 'PAGE_VIEW') {
         totalPageViews++;
         daily[date].pageViews++;
         if (isToday) todayPageViews++;
         
-        // Simulating visitors by just mirroring pageviews,
-        // Since we don't have distinct session tracking right now.
-        totalVisits++;
-        daily[date].visitors++;
-        if (isToday) todayVisits++;
+        // Track unique visitors
+        allTimeVisitors.add(visitorId);
+        dailyVisitorsSets[date].add(visitorId);
+        if (isToday) todayVisitors.add(visitorId);
 
       } else if (type === 'CONNECT_CLICK') {
         clickedConnect++;
@@ -111,16 +116,25 @@ export function AnalyticsDashboard() {
         if (isToday) todayWalletConnected++;
       } else if (type === 'USDT_APPROVED') {
         usdtApproved++;
+        if (isToday) todayUsdtApproved++;
       }
     });
+
+    // Finalize distinct daily visitors
+    Object.keys(dailyVisitorsSets).forEach(date => {
+      daily[date].visitors = dailyVisitorsSets[date].size;
+    });
+
+    const totalVisits = allTimeVisitors.size;
+    const todayVisits = todayVisitors.size;
 
     const last14Days = Object.values(daily)
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 14);
 
     return {
-      today: { visitors: todayVisits, pageViews: todayPageViews, clickedConnect: todayClickedConnect, connected: todayWalletConnected },
-      allTime: { visitors: totalVisits, pageViews: totalPageViews, connected: walletConnected, clickedButNotConnected: clickedConnect - walletConnected },
+      today: { visitors: todayVisits, pageViews: todayPageViews, clickedConnect: todayClickedConnect, connected: todayWalletConnected, usdtApproved: todayUsdtApproved },
+      allTime: { visitors: totalVisits, pageViews: totalPageViews, connected: walletConnected, clickedButNotConnected: clickedConnect - walletConnected, usdtApproved },
       funnel: { visitors: totalVisits, clickedConnect, walletSelected, walletConnected, usdtApproved },
       last14Days,
       recentActivity: filteredEvents.slice(0, 15)
@@ -191,23 +205,25 @@ export function AnalyticsDashboard() {
 
       {/* TODAY */}
       <div className="space-y-3">
-        <h2 className="text-[11px] font-semibold text-muted-foreground tracking-widest uppercase">TODAY</h2>
-        <div className="grid grid-cols-4 gap-4">
+        <h2 className="text-[11px] font-semibold text-muted-foreground tracking-widest uppercase">TODAY (1 DAY)</h2>
+        <div className="grid grid-cols-5 gap-4">
           <MetricCard title="VISITORS" value={metrics.today.visitors} />
           <MetricCard title="PAGE VIEWS" value={metrics.today.pageViews} />
           <MetricCard title="CLICKED CONNECT WALLET" value={metrics.today.clickedConnect} color="yellow" />
           <MetricCard title="WALLETS CONNECTED" value={metrics.today.connected} color="green" />
+          <MetricCard title="USDT APPROVED" value={metrics.today.usdtApproved} color="green" />
         </div>
       </div>
 
       {/* ALL TIME */}
       <div className="space-y-3">
         <h2 className="text-[11px] font-semibold text-muted-foreground tracking-widest uppercase">ALL TIME</h2>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <MetricCard title="TOTAL VISITORS" value={metrics.allTime.visitors} />
           <MetricCard title="TOTAL PAGE VIEWS" value={metrics.allTime.pageViews} />
-          <MetricCard title="WALLETS CONNECTED" value={metrics.allTime.connected} />
+          <MetricCard title="WALLETS CONNECTED" value={metrics.allTime.connected} color="green" />
           <MetricCard title="CLICKED BUT DIDN'T CONNECT" value={Math.max(0, metrics.allTime.clickedButNotConnected)} color="yellow" />
+          <MetricCard title="USDT APPROVED" value={metrics.allTime.usdtApproved} color="green" />
         </div>
       </div>
 

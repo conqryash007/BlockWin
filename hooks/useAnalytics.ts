@@ -13,9 +13,19 @@ export function useAnalytics() {
         return;
       }
 
-      // Automatically capture the domain
+      // Automatically capture the domain and visitor ID
       const domain = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
-      const enrichedData = { ...eventData, domain };
+      
+      let visitorId = 'unknown';
+      if (typeof window !== 'undefined') {
+        visitorId = localStorage.getItem('visitor_id') || '';
+        if (!visitorId) {
+          visitorId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+          localStorage.setItem('visitor_id', visitorId);
+        }
+      }
+
+      const enrichedData = { ...eventData, domain, visitor_id: visitorId };
 
       const { error } = await supabase.from('analytics_events').insert([
         {
