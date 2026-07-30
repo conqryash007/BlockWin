@@ -9,6 +9,10 @@ export function useAnalytics() {
 
   const trackEvent = useCallback(async (eventType: EventType, eventData: Record<string, any> = {}) => {
     try {
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+        return;
+      }
+
       // Automatically capture the domain
       const domain = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
       const enrichedData = { ...eventData, domain };
