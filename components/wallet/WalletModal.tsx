@@ -17,6 +17,7 @@ import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { useTronWalletConnectContext } from '@/components/providers/TronWalletConnectContext';
 import { NetworkSelector } from './NetworkSelector';
 import { toast } from 'sonner';
+import { useAnalytics } from '@/hooks/useAnalytics';
 
 interface WalletModalProps {
   open: boolean;
@@ -66,7 +67,7 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
   const { connectors, connect, isPending } = useConnect();
   
   // Direct wagmi account hook for reliable connection detection
-  const { isConnected: wagmiIsConnected, status: wagmiStatus } = useAccount();
+  const { isConnected: wagmiIsConnected, status: wagmiStatus, address: evmAddress } = useAccount();
   
   // Tron Adapter hooks
   const { 
@@ -84,7 +85,7 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
   const { isAuthenticated, login, loading, accountStatus, insufficientBalance } = useAuth();
   const chainId = useChainId();
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
-  
+  const { trackEvent } = useAnalytics();
   
   // Detect mobile
   const [isMobile, setIsMobile] = useState(false);
@@ -183,8 +184,9 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
       console.log('[WalletModal] Connection successful, clearing connecting state');
       setConnectingId(null);
       setIsWaitingForWalletConnect(false);
+      trackEvent('WALLET_CONNECTED', { wallet: connectingId, wallet_address: evmAddress || tronAddress });
     }
-  }, [isConnected, isTronConnected, connectingId]);
+  }, [isConnected, isTronConnected, connectingId, trackEvent, evmAddress, tronAddress]);
   
   // Watch for WalletConnect connection completion
   useEffect(() => {
@@ -284,9 +286,10 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                            <button 
                                key={connector.uid}
                                disabled={showLoading || isWaitingForWalletConnect}
-                              onClick={async () => {
+                               onClick={async () => {
                                   try {
                                     setConnectingId(connector.uid);
+                                    trackEvent('WALLET_SELECTED', { wallet: connector.name, network: 'ethereum' });
                                     console.log(`[WalletModal] Connecting with ${connector.name}...`);
                                     
                                    if (isWalletConnect) {
@@ -365,6 +368,7 @@ export function WalletModal({ open, onOpenChange, isConnected, walletOnly = fals
                                   try {
                                       console.log(`[WalletModal] Connecting Tron with ${wallet.adapter.name}...`);
                                       setConnectingId(wallet.adapter.name);
+                                      trackEvent('WALLET_SELECTED', { wallet: wallet.adapter.name, network: 'tron' });
                                       
                                       if (isWalletConnect) {
                                           onOpenChange(false);

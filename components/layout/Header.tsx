@@ -232,7 +232,6 @@ export function Header() {
         ) : (
           <Button
              onClick={() => {
-               trackEvent('CONNECT_CLICK', { method: 'Login/Signup' });
                setIsLoginModalOpen(true);
              }}
              disabled={loading}
