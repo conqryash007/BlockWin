@@ -106,62 +106,19 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
     }
   }, [selectedNetwork, refetchTronAllowance]);
 
-  // Handle deposit success (for EVM deposits via wagmi's depositSuccess)
-  // Now also calls the deposit API to handle welcome bonus
+  // Handle deposit success (for EVM deposits via wagmi's depositSuccess).
+  // Balance crediting is handled server-side by the on-chain deposit webhook —
+  // the client never reports the amount it deposited.
   useEffect(() => {
     if (depositSuccess && isProcessing && selectedNetwork === 'ethereum') {
-      const notifyServerForEvm = async () => {
-        try {
-          const supabase = createClient();
-          const { data: { session } } = await supabase.auth.getSession();
-          
-          if (session?.access_token && amount && depositHash) {
-            const depositAmount = parseFloat(amount);
-            const txHash = depositHash;
-            
-            const res = await fetch('/api/wallet/deposit', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${session.access_token}`,
-              },
-              body: JSON.stringify({
-                txHash: txHash,
-                amount: depositAmount,
-                tokenAddress: tokenAddress,
-                network: 'ethereum',
-              }),
-            });
-            const data = await res.json();
-            
-            if (res.ok && data?.success) {
-              triggerBalanceRefresh();
-              // Check if welcome bonus was credited
-              if (data.bonusCredited && data.bonusAmount) {
-                setBonusCredited({ credited: true, amount: data.bonusAmount });
-                triggerBonusUpdate();
-                toast.success(`$${data.bonusAmount} Welcome Bonus credited to your account!`, {
-                  duration: 5000,
-                  icon: '🎁',
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('Failed to notify server of EVM deposit:', err);
-        }
-        
-        setIsProcessing(false);
-        setIsSuccess(true);
-        refetchBalance();
-        triggerBalanceRefresh();
-        toast.success('Deposit successful!');
-        if (onSuccess) onSuccess();
-      };
-      
-      notifyServerForEvm();
+      setIsProcessing(false);
+      setIsSuccess(true);
+      refetchBalance();
+      triggerBalanceRefresh();
+      toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
+      if (onSuccess) onSuccess();
     }
-  }, [depositSuccess, isProcessing, refetchBalance, onSuccess, selectedNetwork, amount, tokenAddress, depositHash]);
+  }, [depositSuccess, isProcessing, refetchBalance, onSuccess, selectedNetwork]);
 
   // Determine if this is a first-time deposit for this token
   const isFirstTime = !hasUnlimitedApprovalLocal;
@@ -252,52 +209,14 @@ export function DepositForm({ selectedNetwork, onSuccess, onClose }: DepositForm
       const depositResult = await deposit(tokenAddress, parsedAmount, selectedNetwork || 'ethereum');
       addLog('Step: Deposit submitted');
 
-      // Tron: no webhook; notify server so it records the tx and credits balance (like EVM webhook does)
+      // Tron: the transaction is on-chain. Balance crediting is server-side only —
+      // the client is not trusted to report the deposited amount.
       if (depositResult && selectedNetwork === 'tron') {
-        const tronTxId = typeof depositResult === 'string' ? depositResult : null;
-        if (tronTxId) {
-          try {
-            const supabase = createClient();
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.access_token) {
-              const depositAmount = amount ? parseFloat(amount) : 0;
-              const res = await fetch('/api/wallet/deposit', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({
-                  txHash: tronTxId,
-                  amount: depositAmount,
-                  tokenAddress: tokenAddress,
-                  network: 'tron',
-                }),
-              });
-              const data = await res.json();
-              if (res.ok && data?.success) {
-                triggerBalanceRefresh();
-                // Check if welcome bonus was credited
-                if (data.bonusCredited && data.bonusAmount) {
-                  setBonusCredited({ credited: true, amount: data.bonusAmount });
-                  triggerBonusUpdate();
-                  toast.success(`$${data.bonusAmount} Welcome Bonus credited to your account!`, {
-                    duration: 5000,
-                    icon: '🎁',
-                  });
-                }
-              } else if (!res.ok) {
-                console.warn('Tron deposit record failed:', data?.error);
-              }
-            }
-          } catch (err) {
-            console.warn('Failed to notify server of Tron deposit:', err);
-          }
-        }
         setIsProcessing(false);
         setIsSuccess(true);
         refetchBalance();
-        toast.success('Deposit successful!');
+        triggerBalanceRefresh();
+        toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
         if (onSuccess) onSuccess();
       }
     } catch (error: any) {

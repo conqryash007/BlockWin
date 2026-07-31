@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { adjustBalance } from '@/lib/game-utils';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -79,31 +80,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'You have already joined this room' }, { status: 400 });
     }
 
-    // Get user balance
-    const { data: balanceData, error: balanceError } = await supabase
-      .from('balances')
-      .select('amount')
-      .eq('user_id', user.id)
-      .single();
+    // Deduct the stake atomically - the database refuses the debit if the
+    // balance is short, so concurrent joins cannot spend the same funds twice.
+    const {
+      balance: newBalance,
+      success: debited,
+      error: debitError,
+      insufficientFunds,
+    } = await adjustBalance(user.id, -stake);
 
-    if (balanceError || !balanceData) {
-      return NextResponse.json({ error: 'Could not fetch balance' }, { status: 500 });
-    }
-
-    const currentBalance = Number(balanceData.amount);
-    if (currentBalance < stake) {
-      return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 });
-    }
-
-    // Deduct stake from balance
-    const newBalance = currentBalance - stake;
-    const { error: updateBalanceError } = await supabase
-      .from('balances')
-      .update({ amount: newBalance, updated_at: new Date().toISOString() })
-      .eq('user_id', user.id);
-
-    if (updateBalanceError) {
-      throw updateBalanceError;
+    if (!debited) {
+      return NextResponse.json(
+        { error: debitError || 'Could not update balance' },
+        { status: insufficientFunds ? 400 : 500 }
+      );
     }
 
     // Create lottery entry
@@ -118,12 +108,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (createEntryError) {
-      // Rollback balance deduction
-      await supabase
-        .from('balances')
-        .update({ amount: currentBalance })
-        .eq('user_id', user.id);
-
+      // Refund the stake - the entry was never created.
+      await adjustBalance(user.id, stake);
       throw createEntryError;
     }
 

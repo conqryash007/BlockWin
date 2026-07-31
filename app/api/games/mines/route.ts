@@ -11,7 +11,8 @@ import {
   getUserFromToken,
   getHouseEdge,
   getBalance,
-  updateBalance,
+  adjustBalance,
+  settleGameSession,
   generateProvablyFairRandom,
   generateServerSeed,
   getNextNonce,
@@ -137,11 +138,15 @@ async function handleStart(
 
   const minePositions = positions.slice(0, mineCount);
 
-  // Deduct bet from balance
-  const newBalance = balance - betAmount;
-  const { error: updateError } = await updateBalance(userId, newBalance);
-  if (updateError) {
-    return NextResponse.json({ error: updateError, success: false }, { status: 500 });
+  // Deduct bet atomically - the database rejects the debit if the balance moved
+  // below the stake since it was read.
+  const { balance: newBalance, success: balanceUpdated, error: updateError, insufficientFunds } =
+    await adjustBalance(userId, -betAmount);
+  if (!balanceUpdated) {
+    return NextResponse.json(
+      { error: updateError, success: false },
+      { status: insufficientFunds ? 400 : 500 }
+    );
   }
 
   // Create game session (in progress)
@@ -167,6 +172,8 @@ async function handleStart(
     .single();
 
   if (sessionError) {
+    // Refund the stake - the round never started.
+    await adjustBalance(userId, betAmount);
     return NextResponse.json({ error: 'Failed to start game', success: false }, { status: 500 });
   }
 
@@ -272,17 +279,19 @@ async function handleReveal(
   outcome.revealedTiles.push(actualTileRevealed);
 
   if (hitMine) {
-    // Game over - lost
+    // Game over - lost. Guarded on the previous status so a concurrent cashout
+    // cannot also settle this round.
     outcome.status = 'bust';
-    
-    await supabaseAdmin
-      .from('game_sessions')
-      .update({
-        outcome,
-        bet_fee: 0,
-        payout: 0,
-      })
-      .eq('id', gameSessionId);
+
+    const { settled } = await settleGameSession(gameSessionId, 'in_progress', {
+      outcome,
+      bet_fee: 0,
+      payout: 0,
+    });
+
+    if (!settled) {
+      return NextResponse.json({ error: 'Game already ended', success: false }, { status: 400 });
+    }
 
     // Get current balance
     const { balance } = await getBalance(userId);
@@ -359,21 +368,24 @@ async function handleCashout(
   const payout = session.bet_amount * multiplier;
   const betFee = 0; // No fee deducted from payout
 
-  // Update balance
-  const { balance } = await getBalance(userId);
-  const newBalance = balance + payout;
-  await updateBalance(userId, newBalance);
-
-  // Update session
+  // Close the round BEFORE paying out. The status guard means only one request
+  // can win this transition, so two concurrent cashouts cannot both be credited.
   outcome.status = 'cashed_out';
-  await supabaseAdmin
-    .from('game_sessions')
-    .update({
-      outcome,
-      payout,
-      bet_fee: betFee,
-    })
-    .eq('id', gameSessionId);
+  const { settled } = await settleGameSession(gameSessionId, 'in_progress', {
+    outcome,
+    payout,
+    bet_fee: betFee,
+  });
+
+  if (!settled) {
+    return NextResponse.json({ error: 'Game already ended', success: false }, { status: 400 });
+  }
+
+  const { balance: newBalance, success: balanceUpdated, error: balanceUpdateError } =
+    await adjustBalance(userId, payout);
+  if (!balanceUpdated) {
+    return NextResponse.json({ error: balanceUpdateError, success: false }, { status: 500 });
+  }
 
   return NextResponse.json({
     success: true,

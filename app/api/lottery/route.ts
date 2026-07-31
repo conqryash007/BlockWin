@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { adjustBalance } from '@/lib/game-utils';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -253,26 +254,13 @@ export async function PUT(request: NextRequest) {
         const winnerEntry = entries.find(e => e.user_id === winner.userId);
         const stakeAmount = winnerEntry ? Number(winnerEntry.stake_amount) : 0;
 
-        const { error: balanceError } = await supabase.rpc('increment_balance', {
-          p_user_id: winner.userId,
-          p_amount: winner.prize
-        });
+        // Credit atomically. The previous read-then-write fallback could drop a
+        // concurrent credit when a user won in two rooms settled at once.
+        const { success: credited, error: creditError } =
+          await adjustBalance(winner.userId, winner.prize);
 
-        if (balanceError) {
-          console.error('Error crediting winner balance:', balanceError);
-          // Try direct update as fallback
-          const { data: currentBalance } = await supabase
-            .from('balances')
-            .select('amount')
-            .eq('user_id', winner.userId)
-            .single();
-
-          if (currentBalance) {
-            await supabase
-              .from('balances')
-              .update({ amount: Number(currentBalance.amount) + winner.prize })
-              .eq('user_id', winner.userId);
-          }
+        if (!credited) {
+          console.error('Error crediting winner balance:', creditError);
         }
 
         // Create game session record for the wallet history

@@ -12,6 +12,11 @@ import { triggerBalanceRefresh } from "@/hooks/usePlatformBalance";
 
 type GameState = "waiting" | "starting" | "running" | "crashed" | "won";
 
+// Multiplier curve: m(t) = e^(GROWTH_RATE * t). Must match GROWTH_RATE in
+// app/api/games/crash/route.ts - the server recomputes the multiplier from this
+// same curve and its own clock to decide every payout.
+const GROWTH_RATE = 0.15;
+
 export function CrashGamePage() {
   // Use useAuth - isAuthenticated for balance, login for prompting
   const { isAuthenticated, login } = useAuth();
@@ -40,7 +45,6 @@ export function CrashGamePage() {
   // Animation refs
   const animationRef = useRef<number>();
   const startTimeRef = useRef<number>(0);
-  const targetCrashPoint = useRef<number>(1);
   const currentMultiplierRef = useRef<number>(1.0);
 
   // Fetch Balance & History - based on Google auth, not wallet connection
@@ -84,42 +88,104 @@ export function CrashGamePage() {
     fetchData();
   }, [isAuthenticated, supabase]);
 
-  // Animation loop - runs when gameState is "running"
-  useEffect(() => {
-    if (gameState === "running" && crashPoint) {
-      const animate = () => {
-        const elapsed = (Date.now() - startTimeRef.current) / 1000;
-        // Exponential growth: 1.00 * e^(0.15*t) - faster animation
-        const newMultiplier = Math.pow(Math.E, 0.15 * elapsed);
-
-        // Check if we've reached the crash point
-        if (newMultiplier >= targetCrashPoint.current) {
-          // Stop animation - we crashed!
-          cancelAnimationFrame(animationRef.current!);
-          setMultiplier(targetCrashPoint.current);
-          currentMultiplierRef.current = targetCrashPoint.current;
-
-          // Only auto-crash if we haven't already cashed out
-          if (gameState === "running" && !isProcessing) {
-            handleCrashed();
-          }
-          return;
-        }
-
-        setMultiplier(newMultiplier);
-        currentMultiplierRef.current = newMultiplier;
-        animationRef.current = requestAnimationFrame(animate);
-      };
-
-      animationRef.current = requestAnimationFrame(animate);
-
-      return () => {
-        if (animationRef.current) {
-          cancelAnimationFrame(animationRef.current);
-        }
-      };
+  // Apply a server-reported loss. The crash point arrives with this payload -
+  // it is not known to the client before the round ends.
+  const finishRoundAsLoss = (data: any) => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
     }
-  }, [gameState, crashPoint]);
+
+    const finalCrashPoint = Number(data.crashPoint);
+    setCrashPoint(finalCrashPoint);
+    setMultiplier(finalCrashPoint);
+    currentMultiplierRef.current = finalCrashPoint;
+
+    if (typeof data.balance === "number") setBalance(data.balance);
+    setLastProfitLoss(typeof data.profitLoss === "number" ? data.profitLoss : null);
+    setIsWin(false);
+    setGameState("crashed");
+
+    if (typeof data.profitLoss === "number") {
+      toast.error(
+        `💥 Crashed at ${finalCrashPoint.toFixed(2)}x! -$${Math.abs(data.profitLoss).toFixed(2)}`,
+      );
+    }
+
+    setHistory((prev) => [
+      { multiplier: finalCrashPoint, id: Date.now() },
+      ...prev.slice(0, 9),
+    ]);
+
+    triggerBalanceRefresh();
+    setSessionId(null);
+    setIsProcessing(false);
+  };
+
+  // Animation loop - runs when gameState is "running".
+  // The client does NOT know the crash point, so it simply animates the curve
+  // and waits for the server to tell it the round ended.
+  useEffect(() => {
+    if (gameState !== "running") return;
+
+    const animate = () => {
+      const elapsed = (Date.now() - startTimeRef.current) / 1000;
+      // Exponential growth: 1.00 * e^(0.15*t) - must match GROWTH_RATE on the server
+      const newMultiplier = Math.pow(Math.E, GROWTH_RATE * elapsed);
+
+      setMultiplier(newMultiplier);
+      currentMultiplierRef.current = newMultiplier;
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [gameState]);
+
+  // Poll the server for the round outcome. The crash point is only disclosed
+  // once the round is actually over, so it cannot be used to cash out early.
+  useEffect(() => {
+    if (gameState !== "running" || !sessionId) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const response = await fetch("/api/games/crash", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ action: "status", sessionId }),
+        });
+
+        const data = await response.json();
+        if (cancelled || !response.ok) return;
+
+        if (data.crashed) {
+          finishRoundAsLoss(data);
+        }
+      } catch {
+        // Transient failure - the next tick retries.
+      }
+    };
+
+    const interval = setInterval(poll, 400);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState, sessionId, supabase]);
 
   // Handle placing a bet (Start Game)
   const handlePlaceBet = async () => {
@@ -171,15 +237,19 @@ export function CrashGamePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to start game");
 
-      // Store session and crash point
+      // Store session. The crash point is intentionally not returned by the
+      // server while the round is live.
       setSessionId(data.sessionId);
-      setCrashPoint(data.crashPoint);
-      targetCrashPoint.current = data.crashPoint;
+      setCrashPoint(null);
       setBalance(data.balance);
       setHouseEdge(data.houseEdge || 0);
 
-      // Start animation
-      startTimeRef.current = Date.now();
+      // Anchor the animation to the server's round start so the curve the
+      // player sees matches the curve the server settles against.
+      const serverStartedAt = data.startedAt ? new Date(data.startedAt).getTime() : Date.now();
+      const clockSkew = data.serverTime ? Date.now() - new Date(data.serverTime).getTime() : 0;
+      startTimeRef.current = serverStartedAt + clockSkew;
+
       setGameState("running");
       setIsProcessing(false);
     } catch (err: any) {
@@ -200,12 +270,6 @@ export function CrashGamePage() {
     }
 
     const cashOutMultiplier = currentMultiplierRef.current;
-
-    // Validate we haven't already crashed
-    if (crashPoint && cashOutMultiplier >= crashPoint) {
-      handleCrashed();
-      return;
-    }
 
     try {
       setIsProcessing(true);
@@ -230,19 +294,29 @@ export function CrashGamePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to cash out");
 
-      // Update state with win result
+      // The server may report that the round had already crashed by its clock.
+      if (data.crashed) {
+        finishRoundAsLoss(data);
+        return;
+      }
+
+      // The server decides the settled multiplier - trust it over the animation.
+      const settledMultiplier = Number(data.multiplier ?? cashOutMultiplier);
+      setMultiplier(settledMultiplier);
+      currentMultiplierRef.current = settledMultiplier;
+      setCrashPoint(Number(data.crashPoint));
       setBalance(data.balance);
       setLastProfitLoss(data.profitLoss);
       setIsWin(true);
       setGameState("won");
 
       toast.success(
-        `🎉 Cashed out at ${cashOutMultiplier.toFixed(2)}x! +$${data.profitLoss.toFixed(2)}`,
+        `🎉 Cashed out at ${settledMultiplier.toFixed(2)}x! +$${data.profitLoss.toFixed(2)}`,
       );
 
       // Update history
       setHistory((prev) => [
-        { multiplier: crashPoint!, id: Date.now() },
+        { multiplier: Number(data.crashPoint), id: Date.now() },
         ...prev.slice(0, 9),
       ]);
 
@@ -255,25 +329,8 @@ export function CrashGamePage() {
       console.error(err);
       toast.error(err.message);
       setIsProcessing(false);
-      // Resume animation if cash out failed
-      if (gameState === "running") {
-        startTimeRef.current =
-          Date.now() - (Math.log(currentMultiplierRef.current) / 0.15) * 1000;
-        animationRef.current = requestAnimationFrame(() => {
-          const animate = () => {
-            const elapsed = (Date.now() - startTimeRef.current) / 1000;
-            const newMultiplier = Math.pow(Math.E, 0.15 * elapsed);
-            if (newMultiplier >= targetCrashPoint.current) {
-              handleCrashed();
-              return;
-            }
-            setMultiplier(newMultiplier);
-            currentMultiplierRef.current = newMultiplier;
-            animationRef.current = requestAnimationFrame(animate);
-          };
-          animate();
-        });
-      }
+      // The animation effect keeps running while gameState is still "running",
+      // and the status poll will settle the round either way.
     }
   };
 
@@ -309,26 +366,22 @@ export function CrashGamePage() {
       if (!response.ok)
         throw new Error(data.error || "Failed to finalize crash");
 
-      // Update state with loss result
-      setBalance(data.balance);
-      setLastProfitLoss(data.profitLoss);
-      setIsWin(false);
-      setGameState("crashed");
+      // The server decides whether this was actually a crash. If the round was
+      // still live it settles as a cashout instead.
+      if (data.crashed === false && data.win) {
+        setCrashPoint(Number(data.crashPoint));
+        setMultiplier(Number(data.multiplier));
+        setBalance(data.balance);
+        setLastProfitLoss(data.profitLoss);
+        setIsWin(true);
+        setGameState("won");
+        triggerBalanceRefresh();
+        setSessionId(null);
+        setIsProcessing(false);
+        return;
+      }
 
-      toast.error(
-        `💥 Crashed at ${crashPoint?.toFixed(2)}x! -$${Math.abs(data.profitLoss).toFixed(2)}`,
-      );
-
-      // Update history
-      setHistory((prev) => [
-        { multiplier: crashPoint!, id: Date.now() },
-        ...prev.slice(0, 9),
-      ]);
-
-      triggerBalanceRefresh();
-
-      setSessionId(null);
-      setIsProcessing(false);
+      finishRoundAsLoss(data);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message);

@@ -12,7 +12,7 @@ import {
   getUserFromToken,
   getHouseEdge,
   getBalance,
-  updateBalance,
+  adjustBalance,
   logGameSession,
   generateProvablyFairRandom,
   generateServerSeed,
@@ -121,11 +121,14 @@ export async function POST(request: NextRequest) {
     const payout = betAmount * multiplier;
     const profitLoss = payout - betAmount;
     const win = profitLoss > 0;
-    const newBalance = balance + profitLoss;
-    
-    const { error: updateError } = await updateBalance(userId, newBalance);
-    if (updateError) {
-      return NextResponse.json({ error: updateError, success: false }, { status: 500 });
+
+    const { balance: newBalance, success: balanceUpdated, error: updateError, insufficientFunds } =
+      await adjustBalance(userId, profitLoss);
+    if (!balanceUpdated) {
+      return NextResponse.json(
+        { error: updateError, success: false },
+        { status: insufficientFunds ? 400 : 500 }
+      );
     }
 
     // 11. Log game session

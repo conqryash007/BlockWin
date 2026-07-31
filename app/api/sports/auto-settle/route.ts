@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminFromToken, getBalance, updateBalance } from '@/lib/game-utils';
+import { getAdminFromToken, getBalance, adjustBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const ODDS_API_KEY = process.env.NEXT_PUBLIC_ODDS_API_KEY || '';
@@ -268,20 +268,56 @@ export async function POST(request: NextRequest) {
         // Apply settlement if not dry run
         if (!dryRun) {
           try {
-            // Get user balance
-            let balance: number;
-            if (userBalances.has(bet.user_id)) {
-              balance = userBalances.get(bet.user_id)!;
-            } else {
-              const { balance: dbBalance } = await getBalance(bet.user_id);
-              balance = dbBalance;
+            // Claim the bet first, guarded on it still being pending. This is
+            // what stops a re-run (or a concurrent cron trigger) from paying the
+            // same bet twice.
+            const { data: claimedBet } = await supabaseAdmin
+              .from('sports_bets')
+              .update({
+                status: outcome,
+                settled_at: new Date().toISOString(),
+              })
+              .eq('id', bet.id)
+              .eq('status', 'pending')
+              .select('id');
+
+            if (!claimedBet || claimedBet.length === 0) {
+              results.push({
+                betId: bet.id,
+                eventId,
+                selection: bet.selection,
+                outcome,
+                payoutAmount: 0,
+                applied: false,
+                reason: 'Bet was already settled',
+              });
+              continue;
             }
 
-            // Update balance for wins/voids
+            // Credit wins/voids atomically
             if (outcome === 'won' || outcome === 'void') {
-              const newBalance = balance + payoutAmount;
-              await updateBalance(bet.user_id, newBalance);
-              userBalances.set(bet.user_id, newBalance);
+              const { balance: updated, success } = await adjustBalance(bet.user_id, payoutAmount);
+
+              if (!success) {
+                // Release the claim so a later run can retry.
+                await supabaseAdmin
+                  .from('sports_bets')
+                  .update({ status: 'pending', settled_at: null })
+                  .eq('id', bet.id);
+
+                results.push({
+                  betId: bet.id,
+                  eventId,
+                  selection: bet.selection,
+                  outcome,
+                  payoutAmount,
+                  applied: false,
+                  reason: 'Failed to credit balance',
+                });
+                continue;
+              }
+
+              userBalances.set(bet.user_id, updated);
 
               // Create transaction
               await supabaseAdmin
@@ -293,15 +329,6 @@ export async function POST(request: NextRequest) {
                   description: `Auto-settled: ${outcome === 'won' ? 'Won' : 'Refund'} bet on ${bet.selection}`,
                 });
             }
-
-            // Update bet status
-            await supabaseAdmin
-              .from('sports_bets')
-              .update({
-                status: outcome,
-                settled_at: new Date().toISOString(),
-              })
-              .eq('id', bet.id);
 
             results.push({
               betId: bet.id,

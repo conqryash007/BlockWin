@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminFromToken, getBalance, updateBalance } from '@/lib/game-utils';
+import { getAdminFromToken, adjustBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 type SettlementOutcome = 'won' | 'lost' | 'void';
@@ -97,70 +97,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user's current balance
-    const { balance, error: balanceError } = await getBalance(sportsBet.user_id);
-    if (balanceError) {
-      return NextResponse.json(
-        { error: 'Failed to fetch user balance', success: false },
-        { status: 500 }
-      );
-    }
-
-    // Calculate new balance based on outcome
-    let newBalance = balance;
+    // Calculate the payout for this outcome
     let payoutAmount = 0;
     let transactionDescription = '';
 
     switch (outcome) {
       case 'won':
         payoutAmount = Number(sportsBet.potential_payout);
-        newBalance = balance + payoutAmount;
         transactionDescription = `Won bet on ${sportsBet.selection} (${sportsBet.event_name})`;
         break;
-      
+
       case 'lost':
         payoutAmount = 0;
         // No balance change - stake was already deducted
         transactionDescription = `Lost bet on ${sportsBet.selection} (${sportsBet.event_name})`;
         break;
-      
+
       case 'void':
         // Refund the original stake
         payoutAmount = Number(sportsBet.stake);
-        newBalance = balance + payoutAmount;
         transactionDescription = `Void/refunded bet on ${sportsBet.selection} (${sportsBet.event_name})`;
         break;
     }
 
-    // Update user balance if needed
-    if (outcome === 'won' || outcome === 'void') {
-      const { error: updateError } = await updateBalance(sportsBet.user_id, newBalance);
-      if (updateError) {
-        return NextResponse.json(
-          { error: 'Failed to update user balance', success: false },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Update bet status
-    const { error: updateBetError } = await supabaseAdmin
+    // Claim the bet first, guarded on it still being pending. Two concurrent
+    // settlements cannot both win this, so a bet can never be paid out twice.
+    const { data: claimedBet, error: updateBetError } = await supabaseAdmin
       .from('sports_bets')
       .update({
         status: outcome,
         settled_at: new Date().toISOString(),
       })
-      .eq('id', betId);
+      .eq('id', betId)
+      .eq('status', 'pending')
+      .select('id');
 
     if (updateBetError) {
-      // Rollback balance if bet update fails
-      if (outcome === 'won' || outcome === 'void') {
-        await updateBalance(sportsBet.user_id, balance);
-      }
       return NextResponse.json(
         { error: 'Failed to update bet status', success: false },
         { status: 500 }
       );
+    }
+
+    if (!claimedBet || claimedBet.length === 0) {
+      return NextResponse.json(
+        { error: 'Bet was already settled', success: false },
+        { status: 400 }
+      );
+    }
+
+    // Credit the payout atomically
+    let newBalance = 0;
+    if (outcome === 'won' || outcome === 'void') {
+      const { balance: updated, success, error: creditError } =
+        await adjustBalance(sportsBet.user_id, payoutAmount);
+
+      if (!success) {
+        // Release the claim so the settlement can be retried.
+        await supabaseAdmin
+          .from('sports_bets')
+          .update({ status: 'pending', settled_at: null })
+          .eq('id', betId);
+
+        return NextResponse.json(
+          { error: creditError || 'Failed to update user balance', success: false },
+          { status: 500 }
+        );
+      }
+
+      newBalance = updated;
     }
 
     // Create transaction record

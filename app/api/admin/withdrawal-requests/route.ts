@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFromToken } from '@/lib/game-utils';
-import { getBalance, updateBalance } from '@/lib/game-utils';
+import { adjustBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getSubdomain } from '@/lib/subdomain';
 
@@ -87,34 +87,41 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Request is already processed' }, { status: 400 });
     }
 
-    if (status === 'rejected') {
-      const { balance, error: balanceError } = await getBalance(row.user_id);
-      if (balanceError) {
-        return NextResponse.json({ error: balanceError }, { status: 500 });
-      }
-      const refundAmount = Number(row.requested_amount);
-      const newBalance = balance + refundAmount;
-      const updateResult = await updateBalance(row.user_id, newBalance);
-      if (!updateResult.success) {
-        return NextResponse.json({ error: updateResult.error || 'Failed to refund balance' }, { status: 500 });
-      }
-    }
-
-    const { error: updateError } = await supabaseAdmin
+    // Claim the request first, guarded on it still being pending. Only one
+    // concurrent call can win this transition, so a rejected request cannot be
+    // refunded twice.
+    const { data: claimed, error: updateError } = await supabaseAdmin
       .from('withdrawal_requests')
       .update({
         status,
         admin_note: admin_note ?? null,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('status', 'pending')
+      .select('id');
 
     if (updateError) {
-      if (status === 'rejected') {
-        const { balance } = await getBalance(row.user_id);
-        await updateBalance(row.user_id, balance - Number(row.requested_amount));
-      }
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    if (!claimed || claimed.length === 0) {
+      return NextResponse.json({ error: 'Request is already processed' }, { status: 400 });
+    }
+
+    if (status === 'rejected') {
+      const refundAmount = Number(row.requested_amount);
+      const { success, error: refundError } = await adjustBalance(row.user_id, refundAmount);
+
+      if (!success) {
+        // Put the request back so the refund can be retried.
+        await supabaseAdmin
+          .from('withdrawal_requests')
+          .update({ status: 'pending', updated_at: new Date().toISOString() })
+          .eq('id', id);
+
+        return NextResponse.json({ error: refundError || 'Failed to refund balance' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true, status });

@@ -13,12 +13,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getUserFromToken,
   getBalance,
-  updateBalance,
+  adjustBalance,
   checkRateLimit,
 } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const HOUSE_EDGE = 0.05; // 5% fee on potential profit
+
+// Server-side limits. Odds and stakes arrive from the client, so every one of
+// these is enforced here regardless of what the request claims - previously a
+// crafted request could set arbitrary odds and book an arbitrary payout.
+const MIN_ODDS = 1.01;
+const MAX_LEG_ODDS = Number(process.env.SPORTS_MAX_LEG_ODDS ?? 100);
+const MAX_COMBINED_ODDS = Number(process.env.SPORTS_MAX_COMBINED_ODDS ?? 10000);
+const MAX_PARLAY_LEGS = 12;
+const MIN_STAKE = 0.1;
+const MAX_STAKE = 10000;
+const MAX_POTENTIAL_PAYOUT = Number(process.env.SPORTS_MAX_PAYOUT ?? 100000);
 
 interface BetSelection {
   eventId: string;
@@ -108,21 +119,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No stake amounts provided', success: false }, { status: 400 });
     }
 
-    // Validate each selection
+    if (betType !== 'single' && betType !== 'parlay') {
+      return NextResponse.json({ error: 'Invalid bet type', success: false }, { status: 400 });
+    }
+
+    // A single bet needs exactly one stake per selection. The old code fell back
+    // to stakes[0] for any missing entry, which booked N bets while only
+    // charging for the stakes that were sent.
+    if (betType === 'single' && stakes.length !== selections.length) {
+      return NextResponse.json({
+        error: 'A stake is required for each selection',
+        success: false,
+      }, { status: 400 });
+    }
+
+    if (betType === 'parlay' && selections.length > MAX_PARLAY_LEGS) {
+      return NextResponse.json({
+        error: `A parlay may have at most ${MAX_PARLAY_LEGS} selections`,
+        success: false,
+      }, { status: 400 });
+    }
+
+    // Validate each selection, and bound the odds server-side.
     for (const sel of selections) {
-      if (!sel.eventId || !sel.eventName || !sel.selection || !sel.odds || sel.odds <= 0) {
+      if (!sel.eventId || !sel.eventName || !sel.selection) {
         console.error('Invalid selection:', sel);
-        return NextResponse.json({ 
-          error: `Invalid selection data: ${JSON.stringify(sel)}`, 
-          success: false 
+        return NextResponse.json({
+          error: 'Invalid selection data',
+          success: false
+        }, { status: 400 });
+      }
+
+      const odds = Number(sel.odds);
+      if (!Number.isFinite(odds) || odds < MIN_ODDS || odds > MAX_LEG_ODDS) {
+        return NextResponse.json({
+          error: `Odds must be between ${MIN_ODDS} and ${MAX_LEG_ODDS}`,
+          success: false,
         }, { status: 400 });
       }
     }
 
-    // Validate stakes are positive
+    // Validate stakes
     for (const stake of stakes) {
-      if (!stake || stake <= 0) {
-        return NextResponse.json({ error: 'Stake must be greater than 0', success: false }, { status: 400 });
+      const value = Number(stake);
+      if (!Number.isFinite(value) || value < MIN_STAKE) {
+        return NextResponse.json({
+          error: `Minimum stake is ${MIN_STAKE}`,
+          success: false,
+        }, { status: 400 });
+      }
+      if (value > MAX_STAKE) {
+        return NextResponse.json({
+          error: `Maximum stake is ${MAX_STAKE}`,
+          success: false,
+        }, { status: 400 });
       }
     }
 
@@ -154,7 +204,7 @@ export async function POST(request: NextRequest) {
     if (betType === 'single') {
       // Process single bets
       selections.forEach((sel, index) => {
-        const stake = stakes[index] || stakes[0];
+        const stake = Number(stakes[index]);
         const potentialPayout = stake * sel.odds;
         const profit = potentialPayout - stake;
         const betFee = Math.max(0, profit * HOUSE_EDGE); // Ensure non-negative
@@ -186,7 +236,15 @@ export async function POST(request: NextRequest) {
     } else {
       // Process parlay bet
       const combinedOdds = selections.reduce((acc, sel) => acc * sel.odds, 1);
-      const stake = stakes[0];
+
+      if (combinedOdds > MAX_COMBINED_ODDS) {
+        return NextResponse.json({
+          error: `Combined parlay odds may not exceed ${MAX_COMBINED_ODDS}`,
+          success: false,
+        }, { status: 400 });
+      }
+
+      const stake = Number(stakes[0]);
       const potentialPayout = stake * combinedOdds;
       const profit = potentialPayout - stake;
       const betFee = profit * HOUSE_EDGE;
@@ -224,11 +282,28 @@ export async function POST(request: NextRequest) {
       betsToInsert.push(parlayRecord);
     }
 
-    // Deduct balance
-    const newBalance = balance - totalStake;
-    const { error: updateError } = await updateBalance(userId, newBalance);
-    if (updateError) {
-      return NextResponse.json({ error: 'Failed to update balance', success: false }, { status: 500 });
+    // Cap the total liability the platform can book from a single request.
+    if (totalPotentialPayout > MAX_POTENTIAL_PAYOUT) {
+      return NextResponse.json({
+        error: `Potential payout may not exceed ${MAX_POTENTIAL_PAYOUT}`,
+        success: false,
+      }, { status: 400 });
+    }
+
+    // Deduct the stake atomically - the database refuses the debit if the
+    // balance is short, so concurrent bets cannot spend the same funds twice.
+    const {
+      balance: newBalance,
+      success: debited,
+      error: updateError,
+      insufficientFunds,
+    } = await adjustBalance(userId, -totalStake);
+
+    if (!debited) {
+      return NextResponse.json(
+        { error: updateError || 'Failed to update balance', success: false },
+        { status: insufficientFunds ? 400 : 500 }
+      );
     }
 
     // Log what we're about to insert
@@ -260,7 +335,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       // Refund on failure
-      await updateBalance(userId, balance);
+      await adjustBalance(userId, totalStake);
       console.error('Failed to insert sports bet:', insertError);
       console.error('Insert error details:', {
         code: insertError.code,

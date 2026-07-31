@@ -13,7 +13,7 @@ import {
   getUserFromToken,
   getHouseEdge,
   getBalance,
-  updateBalance,
+  adjustBalance,
   logGameSession,
   generateProvablyFairRandom,
   generateServerSeed,
@@ -133,16 +133,23 @@ export async function POST(request: NextRequest) {
     roll = Math.max(1, Math.min(100, roll));
 
     // 9. Calculate payout (fair multiplier based on displayed probability)
-    const displayMultiplier = 100 / (baseWinProbability * 100);
+    // A win zone of zero width (target 1 roll-under, target 99 roll-over) has no
+    // winning outcome, so the multiplier is 0 rather than a division by zero.
+    const winZoneCount = baseWinProbability * 100;
+    const displayMultiplier = winZoneCount > 0 ? 100 / winZoneCount : 0;
     const payout = win ? betAmount * displayMultiplier : 0;
 
-    // 10. Calculate profit/loss
+    // 10. Apply profit/loss atomically. Debiting the stake through the same
+    // guarded write means a concurrent bet cannot spend the balance twice.
     const profitLoss = win ? (payout - betAmount) : -betAmount;
-    const newBalance = balance + profitLoss;
-    
-    const { error: updateError } = await updateBalance(userId, newBalance);
-    if (updateError) {
-      return NextResponse.json({ error: updateError, success: false }, { status: 500 });
+
+    const { balance: newBalance, success: balanceUpdated, error: updateError, insufficientFunds } =
+      await adjustBalance(userId, profitLoss);
+    if (!balanceUpdated) {
+      return NextResponse.json(
+        { error: updateError, success: false },
+        { status: insufficientFunds ? 400 : 500 }
+      );
     }
 
     // 11. Log game session

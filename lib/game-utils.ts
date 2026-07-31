@@ -131,18 +131,67 @@ export async function getBalance(userId: string): Promise<{ balance: number; err
   return { balance: Number(data.amount) };
 }
 
-// Update user balance
-export async function updateBalance(userId: string, newBalance: number): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabaseAdmin
-    .from('balances')
-    .update({ amount: newBalance, updated_at: new Date().toISOString() })
-    .eq('user_id', userId);
-
-  if (error) {
-    return { success: false, error: 'Failed to update balance' };
+/**
+ * Atomically apply a signed delta to a user's balance.
+ *
+ * This is the ONLY supported way to move a balance. Do not read a balance and
+ * write back a computed total: concurrent requests read the same starting value
+ * and the last write wins, which lets a balance be spent twice.
+ *
+ * Debits are rejected by the database itself when the balance is too low, so an
+ * overdraw is impossible even under concurrent requests.
+ */
+export async function adjustBalance(
+  userId: string,
+  delta: number
+): Promise<{ balance: number; success: boolean; error?: string; insufficientFunds?: boolean }> {
+  if (!Number.isFinite(delta)) {
+    return { balance: 0, success: false, error: 'Invalid balance adjustment' };
   }
 
-  return { success: true };
+  const { data, error } = await supabaseAdmin.rpc('adjust_balance', {
+    p_user_id: userId,
+    p_delta: delta,
+  });
+
+  if (error) {
+    if (error.message?.includes('INSUFFICIENT_FUNDS')) {
+      return { balance: 0, success: false, error: 'Insufficient balance', insufficientFunds: true };
+    }
+    if (error.message?.includes('BALANCE_ROW_MISSING')) {
+      return { balance: 0, success: false, error: 'Could not fetch balance' };
+    }
+    console.error('adjustBalance failed:', error);
+    return { balance: 0, success: false, error: 'Failed to update balance' };
+  }
+
+  return { balance: Number(data), success: true };
+}
+
+/**
+ * Atomically move a game session out of an expected status.
+ *
+ * Returns settled=false when another concurrent request already advanced the
+ * session, which is what stops a single round from paying out twice.
+ */
+export async function settleGameSession(
+  sessionId: string,
+  expectedStatus: string,
+  patch: Record<string, unknown>
+): Promise<{ settled: boolean }> {
+  const { data, error } = await supabaseAdmin
+    .from('game_sessions')
+    .update(patch)
+    .eq('id', sessionId)
+    .eq('outcome->>status', expectedStatus)
+    .select('id');
+
+  if (error) {
+    console.error('settleGameSession failed:', error);
+    return { settled: false };
+  }
+
+  return { settled: (data?.length ?? 0) > 0 };
 }
 
 // Log game session

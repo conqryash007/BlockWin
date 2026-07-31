@@ -5,9 +5,25 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { getAdminFromToken } from '@/lib/game-utils';
+
+// Diagnostics reflect live database state and leak schema/error details, so this
+// must never be prerendered and never be public.
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const { isAdmin, error: authError } = await getAdminFromToken(
+      request.headers.get('authorization')
+    );
+
+    if (authError || !isAdmin) {
+      return NextResponse.json(
+        { error: authError || 'Admin access required' },
+        { status: 403 }
+      );
+    }
+
     // Try to query the table
     const { data, error } = await supabaseAdmin
       .from('sports_bets')

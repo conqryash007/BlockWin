@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserFromToken } from '@/lib/game-utils';
-import { getBalance, updateBalance } from '@/lib/game-utils';
+import { adjustBalance } from '@/lib/game-utils';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 const WITHDRAWAL_FEE_PERCENT = 0.05;
@@ -53,21 +53,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
     }
 
-    const { balance, error: balanceError } = await getBalance(userId);
-    if (balanceError) {
-      return NextResponse.json({ error: balanceError }, { status: 500 });
-    }
-    if (balance < requestAmount) {
-      return NextResponse.json(
-        { error: `Insufficient balance. You have ${balance.toFixed(2)} USDT.` },
-        { status: 400 }
-      );
-    }
+    // Debit atomically. The database refuses the write if the balance is short,
+    // so two concurrent withdrawal requests cannot both reserve the same funds.
+    const {
+      success: debited,
+      error: debitError,
+      insufficientFunds,
+    } = await adjustBalance(userId, -requestAmount);
 
-    const newBalance = balance - requestAmount;
-    const updateResult = await updateBalance(userId, newBalance);
-    if (!updateResult.success) {
-      return NextResponse.json({ error: updateResult.error || 'Failed to update balance' }, { status: 500 });
+    if (!debited) {
+      return NextResponse.json(
+        { error: debitError || 'Failed to update balance' },
+        { status: insufficientFunds ? 400 : 500 }
+      );
     }
 
     const { data: insertData, error: insertError } = await supabaseAdmin
@@ -83,7 +81,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
-      await updateBalance(userId, balance);
+      // Refund the reserved amount - the request was never created.
+      await adjustBalance(userId, requestAmount);
       return NextResponse.json(
         { error: insertError.message || 'Failed to create withdrawal request' },
         { status: 500 }

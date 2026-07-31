@@ -594,53 +594,14 @@ export function DepositModal() {
           toast.dismiss(toastId);
           
           if (txResult.status === 'success') {
-            console.log('Tron TX confirmed on-chain. Notifying server...');
+            console.log('Tron TX confirmed on-chain.');
             setTronTxStatus('Transaction confirmed! Updating balance...');
-            
-            try {
-              const supabase = createClient();
-              const { data: { session } } = await supabase.auth.getSession();
-              if (session?.access_token) {
-                const depositAmount = amount ? parseFloat(amount) : 0;
-                const res = await fetch('/api/wallet/deposit', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                  },
-                  body: JSON.stringify({
-                    txHash: tronTxId,
-                    amount: depositAmount,
-                    tokenAddress: tokenAddress,
-                    network: 'tron',
-                  }),
-                });
-                console.log('Tron deposit API response status:', res.status);
-                const data = await res.json();
-                console.log('Tron deposit API response data:', data);
-                if (res.ok && data?.success) {
-                  triggerBalanceRefresh();
-                  
-                  // Check if welcome bonus was credited
-                  if (data.bonusCredited && data.bonusAmount) {
-                    setBonusCredited({ credited: true, amount: data.bonusAmount });
-                    toast.success(`🎉 Deposit confirmed! +$${data.bonusAmount} Welcome Bonus credited!`, {
-                      duration: 6000,
-                    });
-                  } else {
-                    toast.success('Deposit confirmed and credited!');
-                  }
-                } else {
-                   // Fallback to webhook if API fails but TX was good
-                   toast.success('Deposit confirmed! Balance updating shortly.');
-                }
-              }
-            } catch (err) {
-              console.warn('Manual notification failed, webhook will process:', err);
-              toast.success('Deposit confirmed! Balance updating shortly.');
-            }
-            
-            
+
+            // Balance crediting is server-side only — the client is never trusted
+            // to report how much it deposited.
+            triggerBalanceRefresh();
+            toast.success('Deposit confirmed! Balance updating shortly.');
+
             setIsSuccess(true);
             // Clear any lingering connection states that might block closing
             setConnectingId(null);
@@ -664,66 +625,16 @@ export function DepositModal() {
           }
         }
       } else if (depositResult) {
-        // EVM deposit — uses webhook-based approach. The webhook adds balance
-        // when the on-chain event is detected. We still try to call the API
-        // to record the tx hash and trigger welcome bonus if applicable.
+        // EVM deposit — the on-chain deposit webhook credits the balance once it
+        // detects the event. The client never reports the deposited amount.
         const evmTxHash = typeof depositResult === 'string' ? depositResult : (depositResult as any)?.hash;
-        
+
         if (evmTxHash) {
           console.log('EVM deposit submitted:', evmTxHash);
-          
-          try {
-            const supabase = createClient();
-            const { data: { session } } = await supabase.auth.getSession();
-            console.log('[DepositModal] Session:', session ? 'Active' : 'Missing', 'User:', session?.user?.id);
-            
-            if (session?.access_token) {
-              const depositAmount = amount ? parseFloat(amount) : 0;
-              const res = await fetch('/api/wallet/deposit', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({
-                  txHash: evmTxHash,
-                  amount: depositAmount,
-                  tokenAddress: tokenAddress,
-                  network: 'ethereum',
-                }),
-              });
-              
-              console.log('EVM deposit API response status:', res.status);
-              const data = await res.json();
-              console.log('EVM deposit API response data:', data);
-              
-              if (res.ok && data?.success) {
-                triggerBalanceRefresh();
-                refetchBalance();
-                
-                // Check if welcome bonus was credited
-                if (data.bonusCredited && data.bonusAmount) {
-                  setBonusCredited({ credited: true, amount: data.bonusAmount });
-                  toast.success(`🎉 Deposit successful! +$${data.bonusAmount} Welcome Bonus credited!`, {
-                    duration: 6000,
-                  });
-                } else {
-                  toast.success('Deposit confirmed and credited!');
-                }
-              } else {
-                // Fallback - tx was submitted, webhook will process
-                toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
-                triggerBalanceRefresh();
-              }
-            } else {
-              toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
-              triggerBalanceRefresh();
-            }
-          } catch (err) {
-            console.error('[DepositModal] Deposit API call failed:', err);
-            toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
-            triggerBalanceRefresh();
-          }
+
+          refetchBalance();
+          triggerBalanceRefresh();
+          toast.success('Deposit submitted! Balance will update after blockchain confirmation.');
         } else {
           // deposit() returned true but no hash string — just show success
           // The webhook will handle the balance update
