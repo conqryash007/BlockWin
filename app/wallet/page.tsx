@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { WalletModal } from '@/components/wallet/WalletModal';
 import { MySportsBets } from '@/components/sports/MySportsBets';
+import { openDepositModal } from '@/lib/depositEvents';
 
 // Game type icons and colors
 const GAME_CONFIG: Record<string, { label: string; color: string }> = {
@@ -248,7 +249,7 @@ export default function WalletPage() {
             Refresh
           </Button>
           <Button
-            onClick={() => setWalletModalOpen(true)}
+            onClick={() => openDepositModal()}
             className="bg-gradient-to-r from-casino-brand to-emerald-500 text-black font-bold hover:opacity-90"
           >
             <ArrowDownToLine className="w-4 h-4 mr-2" />

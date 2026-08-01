@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2, Unplug } from "lucide-react";
+import { Wallet, Search, LogOut, User, Copy, ExternalLink, X, Loader2, Unplug, Coins } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ import { usePlatformBalance } from "@/hooks/usePlatformBalance";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useAnalytics } from "@/hooks/useAnalytics";
+import { openDepositModal } from "@/lib/depositEvents";
 
 export function Header() {
   const [isWalletOpen, setIsWalletOpen] = useState(false);
@@ -138,9 +139,19 @@ export function Header() {
               <span className="text-[8px] sm:text-[10px] text-muted-foreground font-mono hidden xs:block">USDT Balance</span>
             </div>
 
+            {/* Deposit — the only persistent entry point into the deposit flow */}
+            <Button
+              onClick={() => openDepositModal()}
+              size="sm"
+              className="h-8 sm:h-9 bg-casino-brand text-black hover:bg-casino-brand/90 font-bold gap-1.5 px-2.5 sm:px-4"
+            >
+              <Coins className="w-4 h-4" />
+              <span className="hidden sm:inline">Deposit</span>
+            </Button>
+
             {/* Wallet Address Display */}
             {isConnected && address && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
                 <Wallet className="w-4 h-4 text-casino-brand" />
                 <span className="text-sm font-mono text-white tracking-tight">
                   {`${address.slice(0, 6)}...${address.slice(-4)}`}
